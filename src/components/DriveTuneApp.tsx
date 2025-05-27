@@ -1,8 +1,10 @@
 
 "use client";
 
-import { useState, useRef } from 'react';
-import type { Arrangement, ProcessedPart, PartInformation, ArrangementStatus, PartStatus, ExtractedMusicSheetMetadata } from "@/types";
+import { useState, useEffect, useCallback } from 'react';
+import type { GapiLoaded, TokenClient, TokenResponse, OverridableTokenClientConfig } from 'google-accounts';
+// gapi will be available globally after script load, types provided by @types/gapi
+import type { Arrangement, ProcessedPart, ExtractedMusicSheetMetadata, ArrangementStatus, PartStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,55 +14,172 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrangementListItem } from "@/components/ArrangementListItem";
 import { extractMusicSheetMetadata } from "@/ai/flows/extract-music-sheet-metadata";
 import { generateMusicSheetFilename } from "@/ai/flows/generate-music-sheet-filename";
-import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directory";
-import { UploadCloud, CheckCircle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2, PlusCircle, Music2, Merge } from "lucide-react";
+import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directory"; // Still used for conceptual path
+import { UploadCloud, CheckCircle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2, PlusCircle, Music2, Merge, AlertTriangle } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 
-
-const MOCK_DRIVE_CONNECTED_DELAY = 1000;
-const MOCK_FOLDER_SELECTED_DELAY = 500;
+// Ensure these are set in your .env.local file
+const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let arrangementIdCounter = 0;
 
 export default function DriveTuneApp() {
-  const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [tokenClient, setTokenClient] = useState<TokenClient | null>(null);
+  const [gapiReady, setGapiReady] = useState(false);
+  const [gisReady, setGisReady] = useState(false);
+
   const [isConnecting, setIsConnecting] = useState(false);
-  const [rootFolderId, setRootFolderId] = useState<string | null>(null);
+  const [rootFolderDisplayId, setRootFolderDisplayId] = useState<string | null>(null); // Name of the root folder
+  const [rootFolderDriveId, setRootFolderDriveId] = useState<string | null>(null); // Actual Drive ID
   const [isSelectingFolder, setIsSelectingFolder] = useState(false);
-  const [tempFolderId, setTempFolderId] = useState("My Music Sheets");
+  const [tempRootFolderName, setTempRootFolderName] = useState("My DriveTune Sheets");
   
   const [arrangements, setArrangements] = useState<Arrangement[]>([]);
   const [isProcessingGlobal, setIsProcessingGlobal] = useState(false);
 
   const { toast } = useToast();
+  
+  const isDriveConnected = !!accessToken && gapiReady && gisReady;
+
+  // Load GAPI and GIS scripts
+  useEffect(() => {
+    const scriptGapi = document.createElement('script');
+    scriptGapi.src = 'https://apis.google.com/js/api.js';
+    scriptGapi.async = true;
+    scriptGapi.defer = true;
+    scriptGapi.onload = () => {
+        // gapi is loaded directly onto the window object
+        (window as any).gapi.load('client', () => setGapiReady(true));
+    };
+    document.body.appendChild(scriptGapi);
+
+    const scriptGis = document.createElement('script');
+    scriptGis.src = 'https://accounts.google.com/gsi/client';
+    scriptGis.async = true;
+    scriptGis.defer = true;
+    scriptGis.onload = () => setGisReady(true);
+    document.body.appendChild(scriptGis);
+
+    return () => {
+      document.body.removeChild(scriptGapi);
+      document.body.removeChild(scriptGis);
+    };
+  }, []);
+
+  // Initialize GIS Token Client when GIS is ready
+  useEffect(() => {
+    if (gisReady && GOOGLE_CLIENT_ID && (window as any).google?.accounts?.oauth2) {
+      const client = (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPES,
+        callback: (tokenResponse: TokenResponse) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            setAccessToken(tokenResponse.access_token);
+             if ((window as any).gapi && (window as any).gapi.client) {
+                (window as any).gapi.client.setToken({ access_token: tokenResponse.access_token });
+            }
+            toast({ title: "Google Drive Connected", description: "Access token received." });
+          } else {
+            toast({ variant: "destructive", title: "Connection Failed", description: "Could not get access token."});
+          }
+          setIsConnecting(false);
+        },
+      });
+      setTokenClient(client);
+    }
+     if (gisReady && !GOOGLE_CLIENT_ID){
+       toast({ variant: "destructive", title: "Configuration Error", description: "Google Client ID is missing." });
+    }
+  }, [gisReady, toast]);
+
+  // Initialize GAPI client when GAPI is ready and access token is available
+   useEffect(() => {
+    if (gapiReady && accessToken && GOOGLE_API_KEY && (window as any).gapi?.client) {
+      (window as any).gapi.client.init({ apiKey: GOOGLE_API_KEY, discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })
+        .then(() => {
+          // GAPI client is initialized.
+        })
+        .catch((error: any) => {
+          console.error("Error initializing GAPI client:", error);
+          toast({ variant: "destructive", title: "GAPI Init Error", description: "Could not initialize Google API client." });
+        });
+    }
+    if (gapiReady && !GOOGLE_API_KEY && !accessToken){
+       toast({ variant: "destructive", title: "Configuration Error", description: "Google API Key is missing." });
+    }
+  }, [gapiReady, accessToken, toast]);
+
 
   const handleConnectDrive = () => {
-    setIsConnecting(true);
-    setTimeout(() => {
-      setIsDriveConnected(true);
-      setIsConnecting(false);
-      toast({ title: "Success", description: "Connected to Google Drive (Simulated)." });
-    }, MOCK_DRIVE_CONNECTED_DELAY);
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY) {
+        toast({ variant: "destructive", title: "Configuration Missing", description: "API Key or Client ID is not set." });
+        return;
+    }
+    if (tokenClient) {
+      setIsConnecting(true);
+      tokenClient.requestAccessToken();
+    } else {
+      toast({ variant: "destructive", title: "Initialization Error", description: "Google Identity Service not ready." });
+    }
   };
+  
+  const findOrCreateFolder = useCallback(async (folderName: string, parentFolderId: string | 'root' = 'root'): Promise<string | null> => {
+    if (!isDriveConnected || !(window as any).gapi?.client?.drive) {
+      toast({ variant: "destructive", title: "Not Connected", description: "Connect to Google Drive first, or GAPI client not ready."});
+      return null;
+    }
+    try {
+      // Check if folder exists
+      const q = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false and '${parentFolderId === 'root' ? 'root' : parentFolderId}' in parents`;
+      const response = await (window as any).gapi.client.drive.files.list({ q });
+      
+      if (response.result.files && response.result.files.length > 0) {
+        return response.result.files[0].id!;
+      } else {
+        // Create folder
+        const fileMetadata = {
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+          ...(parentFolderId !== 'root' && { parents: [parentFolderId] }),
+        };
+        const createResponse = await (window as any).gapi.client.drive.files.create({ resource: fileMetadata, fields: 'id' });
+        return createResponse.result.id!;
+      }
+    } catch (error: any) {
+      console.error('Error finding or creating folder:', error);
+      toast({ variant: "destructive", title: "Drive Error", description: `Could not find or create folder "${folderName}": ${error.message || error.result?.error?.message}` });
+      return null;
+    }
+  }, [isDriveConnected, toast]);
 
-  const handleSelectRootFolder = () => {
-    if (!tempFolderId.trim()) {
+
+  const handleSelectRootFolder = async () => {
+    if (!tempRootFolderName.trim()) {
       toast({ variant: "destructive", title: "Error", description: "Please enter a root folder name." });
       return;
     }
+    if (!isDriveConnected) {
+       toast({ variant: "destructive", title: "Not Connected", description: "Connect to Google Drive first."});
+      return;
+    }
     setIsSelectingFolder(true);
-    setTimeout(() => {
-      setRootFolderId(tempFolderId.trim());
-      setIsSelectingFolder(false);
-      toast({ title: "Success", description: `Root folder set to: "${tempFolderId.trim()}" (Simulated).` });
-    }, MOCK_FOLDER_SELECTED_DELAY);
+    const driveId = await findOrCreateFolder(tempRootFolderName.trim());
+    if (driveId) {
+      setRootFolderDriveId(driveId);
+      setRootFolderDisplayId(tempRootFolderName.trim());
+      toast({ title: "Success", description: `Root folder set to: "${tempRootFolderName.trim()}".` });
+    }
+    setIsSelectingFolder(false);
   };
 
   const addNewArrangement = () => {
     arrangementIdCounter++;
     const newArrangement: Arrangement = {
       id: `arr-${Date.now()}-${arrangementIdCounter}`,
-      name: `Arrangement ${arrangementIdCounter}`, // This will be updated after metadata extraction
+      name: `Arrangement ${arrangementIdCounter}`,
       status: 'pending_upload',
       statusMessage: 'Please upload PDF file(s) for this arrangement.',
       processedParts: [],
@@ -74,7 +193,7 @@ export default function DriveTuneApp() {
   };
 
   const updatePartStatus = (arrangementId: string, partId: string, status: PartStatus, message: string, details?: Partial<ProcessedPart>) => {
-    setArrangements(prev => prev.map(arr => {
+    setArrangements(prevArrangements => prevArrangements.map(arr => {
       if (arr.id === arrangementId) {
         return {
           ...arr,
@@ -97,7 +216,6 @@ export default function DriveTuneApp() {
          if (event.target) event.target.value = ""; 
          return;
       }
-
       updateArrangement(arrangementId, { files: pdfFiles, status: 'ready_to_process', statusMessage: `${pdfFiles.length} file(s) ready.` });
     }
   };
@@ -111,41 +229,90 @@ export default function DriveTuneApp() {
     });
   };
 
-  async function mergePdfs(files: File[]): Promise<Blob> {
-    const mergedPdf = await PDFDocument.create();
+  async function mergePdfs(files: File[]): Promise<File> { // Returns File object
+    const mergedPdfDoc = await PDFDocument.create();
     for (const file of files) {
       const arrayBuffer = await file.arrayBuffer();
       try {
         const pdf = await PDFDocument.load(arrayBuffer);
-        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+        const copiedPages = await mergedPdfDoc.copyPages(pdf, pdf.getPageIndices());
         copiedPages.forEach((page) => {
-          mergedPdf.addPage(page);
+          mergedPdfDoc.addPage(page);
         });
       } catch (e) {
         console.error(`Error loading or copying pages from ${file.name}:`, e);
         throw new Error(`Could not process ${file.name}. It might be corrupted or password-protected.`);
       }
     }
-    const mergedPdfBytes = await mergedPdf.save();
-    return new Blob([mergedPdfBytes], { type: 'application/pdf' });
+    const mergedPdfBytes = await mergedPdfDoc.save();
+    return new File([mergedPdfBytes], `merged_${Date.now()}.pdf`, { type: 'application/pdf' });
+  }
+
+  async function splitPdfPart(originalPdfDoc: PDFDocument, startPage: number, endPage: number): Promise<Uint8Array> {
+    const newPdfDoc = await PDFDocument.create();
+    const pageIndices = [];
+    // PDF pages are 0-indexed in pdf-lib, user input is 1-indexed
+    for (let i = startPage - 1; i < endPage; i++) {
+        if (i < originalPdfDoc.getPageCount()) {
+            pageIndices.push(i);
+        }
+    }
+    if (pageIndices.length === 0) {
+        throw new Error(`No valid pages found for range ${startPage}-${endPage}`);
+    }
+    const copiedPages = await newPdfDoc.copyPages(originalPdfDoc, pageIndices);
+    copiedPages.forEach(page => newPdfDoc.addPage(page));
+    return newPdfDoc.save();
+  }
+
+  async function uploadFileToDrive(fileContent: Uint8Array, fileName: string, parentFolderId: string): Promise<string | null> {
+    if (!(window as any).gapi?.client?.request) {
+        toast({ variant: "destructive", title: "GAPI Error", description: "GAPI client not ready for upload." });
+        return null;
+    }
+    try {
+        const metadata = {
+            name: fileName,
+            parents: [parentFolderId],
+            mimeType: 'application/pdf',
+        };
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', new Blob([fileContent], { type: 'application/pdf' }));
+
+        const res = await (window as any).gapi.client.request<{id: string}>({ // Type the expected response
+            path: 'https://www.googleapis.com/upload/drive/v3/files',
+            method: 'POST',
+            params: { uploadType: 'multipart' },
+            body: form,
+        });
+        return res.result.id;
+    } catch (error: any) {
+        console.error('Error uploading file to Drive:', error);
+        toast({ variant: "destructive", title: "Drive Upload Error", description: `Could not upload ${fileName}: ${error.message || error.result?.error?.message}` });
+        return null;
+    }
   }
 
 
   const processArrangement = async (arrangement: Arrangement) => {
+    if (!rootFolderDriveId) {
+       updateArrangement(arrangement.id, { status: 'error', statusMessage: 'Root Drive folder not set.', error: 'Root folder missing.' });
+       return;
+    }
     if (!arrangement.files || arrangement.files.length === 0) {
       updateArrangement(arrangement.id, { status: 'error', statusMessage: 'No files uploaded for this arrangement.', error: 'No file(s).' });
       return;
     }
 
     let fileToProcess: File;
-    let currentArrangementName = arrangement.name; // Keep track of name for directory creation
+    let currentArrangementName = arrangement.name; 
 
     try {
       if (arrangement.files.length > 1) {
         updateArrangement(arrangement.id, { status: 'merging_files', statusMessage: 'Merging PDF files...' });
         try {
-            const mergedPdfBlob = await mergePdfs(arrangement.files);
-            fileToProcess = new File([mergedPdfBlob], `merged_${arrangement.id}.pdf`, { type: 'application/pdf' });
+            fileToProcess = await mergePdfs(arrangement.files);
             updateArrangement(arrangement.id, { statusMessage: 'PDFs merged. Reading file...' });
         } catch (mergeError: any) {
             console.error("Error merging PDFs:", mergeError);
@@ -157,51 +324,63 @@ export default function DriveTuneApp() {
       }
 
       updateArrangement(arrangement.id, { status: 'reading_file', statusMessage: 'Reading file...' });
-      const dataUri = await readFileAsDataURL(fileToProcess);
-      updateArrangement(arrangement.id, { dataUri, status: 'extracting_metadata', statusMessage: 'Extracting metadata with AI...' });
+      const dataUri = await readFileAsDataURL(fileToProcess); // Keep for metadata extraction
+      const mainPdfBytes = await fileToProcess.arrayBuffer();
+      const mainPdfDoc = await PDFDocument.load(mainPdfBytes);
 
+
+      updateArrangement(arrangement.id, { dataUri, status: 'extracting_metadata', statusMessage: 'Extracting metadata with AI...' });
       const metadata: ExtractedMusicSheetMetadata = await extractMusicSheetMetadata({ musicSheetDataUri: dataUri });
+      
       if (!metadata.parts || metadata.parts.length === 0) {
         throw new Error("AI did not identify any parts in the music sheet.");
       }
-       if (metadata.parts.some(p => !p.primaryInstrumentation)) {
+      if (metadata.parts.some(p => !p.primaryInstrumentation)) {
         throw new Error("AI failed to provide primary instrumentation for one or more parts.");
       }
       
-      // Update arrangement name with extracted title
       currentArrangementName = metadata.title;
       updateArrangement(arrangement.id, { 
         name: metadata.title, 
         extractedMetadata: metadata, 
-        statusMessage: `Metadata extracted for "${metadata.title}". Determining directory...`
+        status: 'creating_drive_folder_structure',
+        statusMessage: `Metadata extracted. Creating folders in Drive for "${metadata.title}"...`
       });
       
+      // This Genkit flow is now just for conceptual path determination
+      const conceptualDirResult = await createMusicSheetDirectory({
+        rootFolderName: rootFolderDisplayId!, // Display name of root
+        arrangement_type: metadata.arrangement_type,
+      });
+
+      if (!conceptualDirResult.success || !conceptualDirResult.directoryPath) {
+        throw new Error("AI failed to determine conceptual directory structure.");
+      }
+      
+      // Actual Drive folder creation
+      const arrangementTypeFolderDriveId = await findOrCreateFolder(metadata.arrangement_type, rootFolderDriveId);
+      if (!arrangementTypeFolderDriveId) {
+         throw new Error(`Failed to create or find folder for arrangement type: ${metadata.arrangement_type}`);
+      }
+      updateArrangement(arrangement.id, { targetDirectoryDriveId: arrangementTypeFolderDriveId, status: 'processing_parts', statusMessage: 'Processing individual parts...' });
+      
       const initialProcessedParts: ProcessedPart[] = metadata.parts.map((partInfo, index) => ({
-        ...partInfo, // Includes primaryInstrumentation
+        ...partInfo,
         id: `${arrangement.id}-part-${index}-${partInfo.label.replace(/\s+/g, '-')}`,
         parentId: arrangement.id,
         status: 'pending',
         statusMessage: 'Waiting for processing',
       }));
-      updateArrangement(arrangement.id, { processedParts: initialProcessedParts, status: 'creating_directory' }); 
-      
-      const directoryResult = await createMusicSheetDirectory({
-        rootFolderName: rootFolderId!,
-        arrangement_type: metadata.arrangement_type,
-      });
-
-      if (!directoryResult.success || !directoryResult.directoryPath) {
-        throw new Error("AI failed to determine directory structure.");
-      }
-      const targetDirectoryPath = directoryResult.directoryPath;
-      updateArrangement(arrangement.id, { targetDirectoryPath, status: 'processing_parts', statusMessage: 'Processing individual parts...' });
+      updateArrangement(arrangement.id, { processedParts: initialProcessedParts }); 
 
       for (const part of initialProcessedParts) {
         try {
-          updatePartStatus(arrangement.id, part.id, 'naming', 'Generating filename with AI...');
+          updatePartStatus(arrangement.id, part.id, 'splitting', `Preparing part: ${part.label}...`);
+          const partPdfBytes = await splitPdfPart(mainPdfDoc, part.start_page, part.end_page);
           
+          updatePartStatus(arrangement.id, part.id, 'naming', 'Generating filename with AI...');
           const filenameResult = await generateMusicSheetFilename({ 
-            arrangementName: currentArrangementName, // This is metadata.title
+            arrangementName: currentArrangementName, 
             partInstrumentation: part.primaryInstrumentation 
           });
 
@@ -209,11 +388,13 @@ export default function DriveTuneApp() {
             throw new Error("AI could not generate a filename for this part.");
           }
           const generatedFilename = filenameResult.filename;
-          updatePartStatus(arrangement.id, part.id, 'organizing', 'Finalizing organization (Simulated)...', { generatedFilename });
+          updatePartStatus(arrangement.id, part.id, 'uploading_to_drive', `Uploading "${generatedFilename}" to Drive...`, { generatedFilename });
 
-          // Simulate final upload/move step for the part
-          await new Promise(resolve => setTimeout(resolve, 300));
-          updatePartStatus(arrangement.id, part.id, 'done', `Successfully organized as ${targetDirectoryPath}/${generatedFilename}`);
+          const driveFileId = await uploadFileToDrive(partPdfBytes, generatedFilename, arrangementTypeFolderDriveId);
+          if (!driveFileId) {
+            throw new Error(`Failed to upload "${generatedFilename}" to Drive.`);
+          }
+          updatePartStatus(arrangement.id, part.id, 'done', `Organized in Drive as ${metadata.arrangement_type}/${generatedFilename}`, { driveFileId });
         } catch (partError: any) {
           console.error("Error processing part:", part.label, partError);
           const partErrorMessage = partError.message || "Unknown error processing part.";
@@ -221,33 +402,32 @@ export default function DriveTuneApp() {
         }
       }
       
-      // Re-fetch arrangement from state to get the latest processedParts
-      // It's better to use a functional update for setArrangements to ensure we're working with the latest state
       let finalStatus: ArrangementStatus = 'done';
       let finalMessage = `Arrangement "${currentArrangementName}" processed successfully!`;
 
       setArrangements(prevArrangements => {
-        const updatedArrangements = prevArrangements.map(arr => {
-          if (arr.id === arrangement.id) {
-            const allPartsDoneOrError = arr.processedParts.every(p => p.status === 'done' || p.status === 'error');
+        const currentArr = prevArrangements.find(a => a.id === arrangement.id);
+        if (currentArr) {
+            const allPartsDoneOrError = currentArr.processedParts.every(p => p.status === 'done' || p.status === 'error');
             if (allPartsDoneOrError) {
-              const hasErrors = arr.processedParts.some(p => p.status === 'error');
+              const hasErrors = currentArr.processedParts.some(p => p.status === 'error');
               finalStatus = hasErrors ? 'all_parts_processed' : 'done';
               finalMessage = hasErrors 
-                ? `Arrangement "${currentArrangementName}" processed with some errors.` 
-                : `Arrangement "${currentArrangementName}" processed successfully!`;
+                ? `Arrangement "${currentArrangementName}" processed. Some parts had errors.` 
+                : `Arrangement "${currentArrangementName}" processed and uploaded to Drive!`;
               
               if (!hasErrors) {
-                  toast({ title: "Arrangement Organized", description: `"${currentArrangementName}" processed successfully.` });
+                  toast({ title: "Arrangement Organized", description: `"${currentArrangementName}" uploaded to Drive.` });
               } else {
-                  toast({ variant: "default", title: "Arrangement Processed", description: `"${currentArrangementName}" had issues with some parts. Check details.`, duration: 5000 });
+                  toast({ variant: "default", title: "Arrangement Processed", description: `"${currentArrangementName}" processed. Check part statuses.`, duration: 5000 });
               }
-              return { ...arr, status: finalStatus, statusMessage: finalMessage };
+               // Update the specific arrangement in the main arrangements array
+                return prevArrangements.map(a => 
+                    a.id === arrangement.id ? { ...a, status: finalStatus, statusMessage: finalMessage } : a
+                );
             }
-          }
-          return arr;
-        });
-        return updatedArrangements;
+        }
+        return prevArrangements; // No change if condition not met
       });
 
     } catch (error: any) {
@@ -259,8 +439,8 @@ export default function DriveTuneApp() {
   };
 
   const handleProcessAllReadyArrangements = async () => {
-    if (!rootFolderId) {
-      toast({ variant: "destructive", title: "Error", description: "Please select a root folder first." });
+    if (!rootFolderDriveId) {
+      toast({ variant: "destructive", title: "Error", description: "Please select and confirm a root folder in Google Drive first." });
       return;
     }
     const readyArrangements = arrangements.filter(arr => arr.status === 'ready_to_process' && arr.files && arr.files.length > 0);
@@ -271,8 +451,6 @@ export default function DriveTuneApp() {
 
     setIsProcessingGlobal(true);
     for (const arrangement of readyArrangements) {
-      // Use a functional update or find from latest state if processArrangement modifies `arrangements` indirectly
-      // For simplicity, assuming processArrangement internally fetches the latest state or works on a copy.
        const currentArrangementToProcess = arrangements.find(a => a.id === arrangement.id);
         if (currentArrangementToProcess) {
             await processArrangement(currentArrangementToProcess);
@@ -289,6 +467,7 @@ export default function DriveTuneApp() {
   const allDoneOrError = arrangements.length > 0 && arrangements.every(a => a.status === 'done' || a.status === 'error' || a.status === 'all_parts_processed');
   const numReadyToProcess = arrangements.filter(arr => arr.status === 'ready_to_process' && arr.files && arr.files.length > 0).length;
 
+
   return (
     <div className="container mx-auto p-4 md:p-8 min-h-screen flex flex-col items-center bg-background">
       <header className="mb-8 text-center">
@@ -296,25 +475,38 @@ export default function DriveTuneApp() {
           <Music2 className="w-12 h-12 mr-3 text-accent" />
           DriveTune
         </h1>
-        <p className="text-xl text-muted-foreground">Organize Your Music Sheets with AI Magic</p>
+        <p className="text-xl text-muted-foreground">Organize Your Music Sheets in Google Drive</p>
       </header>
 
       <div className="w-full max-w-3xl space-y-6">
+        {!GOOGLE_API_KEY || !GOOGLE_CLIENT_ID ? (
+            <Card className="border-destructive bg-destructive/10">
+                <CardHeader>
+                    <CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2 h-6 w-6"/>Configuration Incomplete</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-destructive-foreground">
+                        Google API Key or Client ID is not configured. Please set <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_API_KEY</code> and <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in your environment variables.
+                        Follow the instructions in the <code className="bg-destructive/20 px-1 rounded">.env</code> file.
+                    </p>
+                </CardContent>
+            </Card>
+        ): null}
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="flex items-center"><LinkIcon className="mr-2 h-6 w-6 text-primary" />Step 1: Connect to Google Drive</CardTitle>
-            <CardDescription>Securely connect your Google Drive account.</CardDescription>
+            <CardDescription>Sign in with Google and authorize access to your Drive.</CardDescription>
           </CardHeader>
           <CardContent>
             {!isDriveConnected ? (
-              <Button onClick={handleConnectDrive} disabled={isConnecting} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button onClick={handleConnectDrive} disabled={isConnecting || !gapiReady || !gisReady || !tokenClient || !GOOGLE_CLIENT_ID || !GOOGLE_API_KEY} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isConnecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
                 {isConnecting ? "Connecting..." : "Connect to Google Drive"}
               </Button>
             ) : (
               <div className="flex items-center text-green-600 p-3 bg-green-50 border border-green-200 rounded-md">
                 <CheckCircle className="mr-2 h-5 w-5" />
-                <span>Successfully connected to Google Drive (Simulated).</span>
+                <span>Successfully connected to Google Drive.</span>
               </div>
             )}
           </CardContent>
@@ -323,42 +515,42 @@ export default function DriveTuneApp() {
         {isDriveConnected && (
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center"><FolderOpenDot className="mr-2 h-6 w-6 text-primary" />Step 2: Select Root Folder</CardTitle>
-              <CardDescription>Choose or create a main folder name in your Drive.</CardDescription>
+              <CardTitle className="flex items-center"><FolderOpenDot className="mr-2 h-6 w-6 text-primary" />Step 2: Select/Create Root Folder</CardTitle>
+              <CardDescription>Choose a name for the main folder in your Drive where sheets will be organized.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <Label htmlFor="rootFolder">Root Folder Name (Simulated)</Label>
+                <Label htmlFor="rootFolder">Root Folder Name</Label>
                 <Input
                   id="rootFolder"
-                  value={tempFolderId}
-                  onChange={(e) => setTempFolderId(e.target.value)}
-                  placeholder="e.g., My Music Sheets"
-                  disabled={!!rootFolderId || isSelectingFolder}
+                  value={tempRootFolderName}
+                  onChange={(e) => setTempRootFolderName(e.target.value)}
+                  placeholder="e.g., My DriveTune Sheets"
+                  disabled={!!rootFolderDriveId || isSelectingFolder}
                 />
               </div>
             </CardContent>
             <CardFooter>
-              {!rootFolderId ? (
-                <Button onClick={handleSelectRootFolder} disabled={isSelectingFolder || !tempFolderId.trim()} className="w-full">
+              {!rootFolderDriveId ? (
+                <Button onClick={handleSelectRootFolder} disabled={isSelectingFolder || !tempRootFolderName.trim() || !isDriveConnected} className="w-full">
                   {isSelectingFolder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Set Root Folder
+                  Set Root Folder in Drive
                 </Button>
               ) : (
                  <div className="flex items-center text-green-600 p-3 bg-green-50 border border-green-200 rounded-md w-full">
                     <CheckCircle className="mr-2 h-5 w-5" />
-                    <span>Root folder: "{rootFolderId}"</span>
+                    <span>Root folder in Drive: "{rootFolderDisplayId}"</span>
                   </div>
               )}
             </CardFooter>
           </Card>
         )}
 
-        {rootFolderId && (
+        {rootFolderDriveId && (
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><UploadCloud className="mr-2 h-6 w-6 text-primary" />Step 3: Add & Organize Arrangements</CardTitle>
-              <CardDescription>Add arrangements. Upload one or more PDF files per arrangement tray. They will be merged for AI processing. AI extracts metadata, names parts, and organizes them into the structure: {rootFolderId}/[Arrangement Type]/[Arrangement Name] - [Part Instrumentation].pdf</CardDescription>
+              <CardDescription>Upload PDF(s) per arrangement. They'll be merged, metadata extracted by AI, parts split, named, and organized into: {rootFolderDisplayId}/[Arrangement Type]/[Arrangement Name] - [Part Name].pdf</CardDescription>
             </CardHeader>
             <CardContent>
               <Button onClick={addNewArrangement} variant="outline" className="w-full mb-4">
@@ -378,6 +570,7 @@ export default function DriveTuneApp() {
                         onProcess={processArrangement}
                         isProcessingGlobal={isProcessingGlobal}
                         updateArrangementName={(id, newName) => updateArrangement(id, { name: newName })}
+                        rootFolderName={rootFolderDisplayId || "Root"}
                       />
                     ))}
                     </div>
@@ -388,11 +581,11 @@ export default function DriveTuneApp() {
             <CardFooter>
               <Button
                 onClick={handleProcessAllReadyArrangements}
-                disabled={isProcessingGlobal || numReadyToProcess === 0}
+                disabled={isProcessingGlobal || numReadyToProcess === 0 || !isDriveConnected}
                 className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
               >
                 {isProcessingGlobal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                {isProcessingGlobal ? "Processing Arrangements..." : `Organize ${numReadyToProcess} Ready Arrangement(s)`}
+                {isProcessingGlobal ? "Processing Arrangements..." : `Organize ${numReadyToProcess} Ready Arrangement(s) in Drive`}
               </Button>
             </CardFooter>
           </Card>
@@ -412,3 +605,4 @@ export default function DriveTuneApp() {
     </div>
   );
 }
+

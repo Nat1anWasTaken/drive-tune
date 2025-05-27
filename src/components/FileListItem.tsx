@@ -4,22 +4,25 @@
 import type { ProcessedPart, PartStatus } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, XCircle, Loader2, FileText, Edit3, Cog } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, FileText, Edit3, Cog, CloudUpload, Scissors } from "lucide-react";
 
 interface PartListItemProps {
   part: ProcessedPart;
+  arrangementName?: string; // Arrangement name (extracted title)
   arrangementType?: string; // Arrangement type, e.g., "Percussion Ensemble"
-  rootFolderName?: string; // e.g., "My Music Sheets"
+  rootFolderName?: string; // e.g., "My DriveTune Sheets"
 }
 
 const getStatusIcon = (status: PartStatus) => {
   switch (status) {
     case 'pending':
       return <FileText className="h-4 w-4 text-muted-foreground" />;
+    case 'splitting':
+      return <Scissors className="h-4 w-4 text-blue-500 animate-pulse" />; // New icon
     case 'naming':
       return <Edit3 className="h-4 w-4 text-primary animate-pulse" />;
-    case 'organizing':
-        return <Cog className="h-4 w-4 animate-spin text-accent" />; 
+    case 'uploading_to_drive':
+        return <CloudUpload className="h-4 w-4 animate-spin text-accent" />;  // New Icon
     case 'done':
       return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     case 'error':
@@ -32,29 +35,27 @@ const getStatusIcon = (status: PartStatus) => {
 const getProgressValue = (status: PartStatus): number => {
   switch (status) {
     case 'pending': return 0;
-    case 'naming': return 33;
-    case 'organizing': return 66;
+    case 'splitting': return 20;
+    case 'naming': return 40;
+    case 'uploading_to_drive': return 70;
     case 'done': return 100;
     case 'error': return 100; 
     default: return 0;
   }
 }
 
-export function PartListItem({ part, arrangementType, rootFolderName }: PartListItemProps) {
+export function PartListItem({ part, arrangementName, arrangementType, rootFolderName }: PartListItemProps) {
   const progressValue = getProgressValue(part.status);
 
   const getDisplayPath = () => {
-    // The filename (part.generatedFilename) now includes the arrangement name.
-    // e.g., "- MIRA - - Glockenspiel.pdf"
     if (!part.generatedFilename || !arrangementType) {
       return part.generatedFilename || "Filename pending...";
     }
     // Display path is like: {Arrangement Type}/{Generated Filename}
-    // e.g. "Percussion Ensemble/- MIRA - - Glockenspiel.pdf"
     const displaySegments = [arrangementType, part.generatedFilename];
     const displayStr = displaySegments.join('/');
     
-    if (displayStr.length > 60) { // Heuristic for long paths to shorten display
+    if (displayStr.length > 60) { 
         return `.../${part.generatedFilename}`;
     }
     return displayStr;
@@ -82,7 +83,7 @@ export function PartListItem({ part, arrangementType, rootFolderName }: PartList
         
         {part.status === 'done' && part.generatedFilename && arrangementType && rootFolderName && (
           <p className="text-xs text-green-600 mt-1.5 truncate" title={fullPathTitle()}>
-            Organized as: {getDisplayPath()}
+            In Drive: {getDisplayPath()}
           </p>
         )}
          {part.status !== 'done' && part.generatedFilename && (

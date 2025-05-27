@@ -1,13 +1,11 @@
-
 // src/types/index.ts
 
 // Information for a single part within a music sheet
 export type PartInformation = {
-  label: string; // e.g., "Flute I", "Full Score", "File Subject"
+  label: string; // e.g., "Flute I", "Full Score"
   is_full_score: boolean;
   start_page: number;
   end_page: number;
-  instrumentations?: string[]; // e.g. ["Flute", "Oboe", "Clarinet"] or ["Full Score"]
   primaryInstrumentation: string; // e.g., "Flute", "Violin I", "Full Score", "Trumpet-Bb"
 };
 
@@ -16,7 +14,7 @@ export interface ExtractedMusicSheetMetadata {
   title: string; // Overall title of the composition
   composers: string[]; // Array of composer/arranger names
   arrangement_type: string; // e.g., "Concert Band", "String Quartet"
-  parts: PartInformation[]; // Array of parts found in the sheet (was PartMetadata, now PartInformation)
+  parts: PartInformation[];
 }
 
 // Represents an "Arrangement" uploaded by the user
@@ -29,7 +27,7 @@ export interface Arrangement {
   statusMessage: string;
   extractedMetadata?: ExtractedMusicSheetMetadata;
   processedParts: ProcessedPart[]; // Individual parts derived from this arrangement
-  targetDirectoryPath?: string; // Common directory for all parts of this arrangement
+  targetDirectoryDriveId?: string; // Drive ID of the specific type folder (e.g., "Concert Band") for this arrangement
   error?: string;
 }
 
@@ -40,6 +38,7 @@ export interface ProcessedPart extends PartInformation {
   status: PartStatus; // Status of processing this individual part
   statusMessage: string;
   generatedFilename?: string;
+  driveFileId?: string; // Drive ID of the uploaded part file
   error?: string;
 }
 
@@ -49,15 +48,16 @@ export type ArrangementStatus =
   | 'merging_files' // If multiple files, currently merging them
   | 'reading_file'     // Reading the main PDF file (single or merged)
   | 'extracting_metadata' // AI extracting metadata for all parts
-  | 'processing_parts'  // Looping through parts to name and organize them
-  | 'creating_directory' // Determining base directory for all parts
+  | 'creating_drive_folder_structure' // Creating folders in Google Drive
+  | 'processing_parts'  // Looping through parts (splitting, naming, uploading)
   | 'all_parts_processed' // All parts processed (some might have errors)
   | 'done' // Arrangement fully processed successfully
   | 'error'; // Error at the arrangement level
 
 export type PartStatus =
   | 'pending' // Part identified, waiting for individual processing
+  | 'splitting' // If PDF splitting is needed for this part
   | 'naming' // Generating filename for this part
-  | 'organizing' // Simulating upload/move for this part
-  | 'done' // Part processed successfully
+  | 'uploading_to_drive' // Uploading this part to Google Drive
+  | 'done' // Part processed successfully and uploaded
   | 'error'; // Error processing this part

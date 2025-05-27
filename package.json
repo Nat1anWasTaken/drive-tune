@@ -57,6 +57,8 @@
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
+    "@types/gapi": "^0.0.47",
+    "@types/google.accounts": "^0.0.14",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

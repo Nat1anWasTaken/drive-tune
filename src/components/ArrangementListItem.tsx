@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { PartListItem } from "./FileListItem"; // FileListItem is now PartListItem
-import { CheckCircle2, XCircle, Loader2, FileUp, AlertTriangle, Sparkles, FileSymlink, Pencil, Hourglass, FolderCog, Merge } from "lucide-react";
+import { PartListItem } from "./FileListItem"; 
+import { CheckCircle2, XCircle, Loader2, FileUp, AlertTriangle, Sparkles, FileSymlink, Pencil, Hourglass, FolderCog, Merge, CloudCog } from "lucide-react";
 import React, { useState, useEffect } from "react";
 
 interface ArrangementListItemProps {
@@ -15,7 +15,8 @@ interface ArrangementListItemProps {
   onFileChange: (arrangementId: string, event: React.ChangeEvent<HTMLInputElement>) => void;
   onProcess: (arrangement: Arrangement) => Promise<void>;
   isProcessingGlobal: boolean;
-  updateArrangementName: (arrangementId: string, newName: string) => void; // Retain for manual editing if needed, though primary update is via metadata
+  updateArrangementName: (arrangementId: string, newName: string) => void;
+  rootFolderName: string; // Added to pass to PartListItem
 }
 
 const getArrangementStatusIcon = (status: ArrangementStatus) => {
@@ -29,11 +30,11 @@ const getArrangementStatusIcon = (status: ArrangementStatus) => {
     case 'reading_file':
     case 'extracting_metadata':
       return <Loader2 className="h-5 w-5 animate-spin text-primary" />;
-    case 'creating_directory':
-      return <FolderCog className="h-5 w-5 animate-spin text-purple-500" />;
+    case 'creating_drive_folder_structure':
+      return <CloudCog className="h-5 w-5 animate-spin text-sky-500" />; // New Icon
     case 'processing_parts':
       return <Hourglass className="h-5 w-5 animate-spin text-orange-500" />;
-    case 'all_parts_processed':
+    case 'all_parts_processed': // Some parts might have errors
         return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
     case 'done':
       return <CheckCircle2 className="h-5 w-5 text-green-500" />;
@@ -51,7 +52,7 @@ const getArrangementProgressValue = (status: ArrangementStatus, partsProcessed?:
     case 'merging_files': return 8;
     case 'reading_file': return 10;
     case 'extracting_metadata': return 25;
-    case 'creating_directory': return 40;
+    case 'creating_drive_folder_structure': return 35;
     case 'processing_parts':
       if (totalParts && totalParts > 0 && partsProcessed !== undefined) {
         return 40 + (partsProcessed / totalParts) * 50; // processing_parts takes from 40% to 90%
@@ -64,13 +65,11 @@ const getArrangementProgressValue = (status: ArrangementStatus, partsProcessed?:
   }
 }
 
-export function ArrangementListItem({ arrangement, onFileChange, onProcess, isProcessingGlobal, updateArrangementName }: ArrangementListItemProps) {
+export function ArrangementListItem({ arrangement, onFileChange, onProcess, isProcessingGlobal, updateArrangementName, rootFolderName }: ArrangementListItemProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
-  // Use arrangement.name directly as it will be updated from metadata
   const [editableName, setEditableName] = useState(arrangement.name);
 
-  // Sync editableName when arrangement.name changes externally (e.g., from metadata)
   useEffect(() => {
     setEditableName(arrangement.name);
   }, [arrangement.name]);
@@ -83,7 +82,6 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
     if (editableName.trim() && editableName.trim() !== arrangement.name) {
       updateArrangementName(arrangement.id, editableName.trim());
     } else {
-      // If name hasn't changed or is empty, revert to arrangement.name from props
       setEditableName(arrangement.name); 
     }
     setIsEditingName(false);
@@ -93,7 +91,6 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
   const totalPartsCount = arrangement.processedParts.length;
   const progressValue = getArrangementProgressValue(arrangement.status, partsProcessedCount, totalPartsCount);
   const canProcess = arrangement.status === 'ready_to_process' && !!arrangement.files && arrangement.files.length > 0 && !isProcessingGlobal;
-  // Disable manual name editing if metadata has been extracted
   const canEditName = arrangement.status === 'pending_upload' || arrangement.status === 'ready_to_process';
 
 
@@ -136,7 +133,7 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
               onChange={(e) => onFileChange(arrangement.id, e)}
               className="hidden"
               accept=".pdf"
-              multiple // Allow multiple files
+              multiple 
             />
             <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="w-full">
               <FileUp className="mr-2 h-4 w-4" /> Upload PDF(s) for this Arrangement
@@ -164,10 +161,9 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
                 <PartListItem 
                     key={part.id} 
                     part={part} 
-                    // Pass the arrangement's name which is now the extracted title
-                    arrangementName={arrangement.name} 
+                    arrangementName={arrangement.name} // This is the extracted title
                     arrangementType={arrangement.extractedMetadata?.arrangement_type}
-                    rootFolderName={arrangement.targetDirectoryPath?.split('/')[0]} // Assuming root is first part
+                    rootFolderName={rootFolderName} 
                 />
               ))}
             </div>
@@ -189,4 +185,3 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
     </Card>
   );
 }
-
