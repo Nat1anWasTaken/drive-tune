@@ -15,12 +15,13 @@ import { ArrangementListItem } from "@/components/ArrangementListItem";
 import { extractMusicSheetMetadata } from "@/ai/flows/extract-music-sheet-metadata";
 import { generateMusicSheetFilename } from "@/ai/flows/generate-music-sheet-filename";
 import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directory";
-import { UploadCloud, CheckCircle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2, PlusCircle, Music2, Merge, AlertTriangle } from "lucide-react";
+import { UploadCloud, CheckCircle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2, PlusCircle, Music2, Merge, AlertTriangle, FolderSearch } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 
 // Ensure this is set in your .env.local file
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY; // Needed for Google Picker API
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file'; // Sufficient for picker and file operations
 
 let arrangementIdCounter = 0;
 
@@ -35,17 +36,25 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+// Minimal type for Google Picker document
+interface PickerDocument {
+  id: string;
+  name: string;
+  // Add other fields if needed, e.g., mimeType
+}
+
 
 export default function DriveTuneApp() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [tokenClient, setTokenClient] = useState<TokenClient | null>(null);
   const [gapiReady, setGapiReady] = useState(false);
   const [gisReady, setGisReady] = useState(false);
+  const [pickerApiLoaded, setPickerApiLoaded] = useState(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [rootFolderDisplayId, setRootFolderDisplayId] = useState<string | null>(null); 
   const [rootFolderDriveId, setRootFolderDriveId] = useState<string | null>(null); 
-  const [isSelectingFolder, setIsSelectingFolder] = useState(false);
+  const [isSettingRootFolder, setIsSettingRootFolder] = useState(false);
   const [tempRootFolderName, setTempRootFolderName] = useState("My DriveTune Sheets");
   
   const [arrangements, setArrangements] = useState<Arrangement[]>([]);
@@ -61,11 +70,9 @@ export default function DriveTuneApp() {
     scriptGapi.async = true;
     scriptGapi.defer = true;
     scriptGapi.onload = () => {
-        // gapi.load ensures gapi.client is available.
-        // Specific API client libraries (like gapi.client.drive) are loaded by discoveryDocs if gapi.client.init is called.
-        // Since backend handles Drive API calls, explicit client.init for Drive might not be needed.
-        (window as any).gapi.load('client', () => { 
-          setGapiReady(true);
+        (window as any).gapi.load('client:picker', () => { 
+          setGapiReady(true); // gapi.client is available
+          setPickerApiLoaded(true); // gapi.picker is available
         });
     };
     document.body.appendChild(scriptGapi);
@@ -124,6 +131,7 @@ export default function DriveTuneApp() {
       toast({ variant: "destructive", title: "Not Connected", description: "Connect to Google Drive first." });
       return null;
     }
+    setIsSettingRootFolder(true);
     try {
       const response = await fetch('/api/drive-handler', {
         method: 'POST',
@@ -141,16 +149,21 @@ export default function DriveTuneApp() {
       if (!response.ok) {
         throw new Error(result.error || `Failed to find or create folder "${folderName}"`);
       }
+      setRootFolderDriveId(result.driveId);
+      setRootFolderDisplayId(folderName);
+      toast({ title: "Success", description: `Root folder set to: "${folderName}".` });
       return result.driveId;
     } catch (error: any) {
       console.error('Error finding or creating folder via API:', error);
       toast({ variant: "destructive", title: "Drive Error (API)", description: `Could not find or create folder "${folderName}": ${error.message}` });
       return null;
+    } finally {
+      setIsSettingRootFolder(false);
     }
   }, [accessToken, toast]);
 
 
-  const handleSelectRootFolder = async () => {
+  const handleSetRootFolderByName = async () => {
     if (!tempRootFolderName.trim()) {
       toast({ variant: "destructive", title: "Error", description: "Please enter a root folder name." });
       return;
@@ -159,15 +172,35 @@ export default function DriveTuneApp() {
        toast({ variant: "destructive", title: "Not Connected", description: "Connect to Google Drive first."});
       return;
     }
-    setIsSelectingFolder(true);
-    const driveId = await findOrCreateFolderAPI(tempRootFolderName.trim());
-    if (driveId) {
-      setRootFolderDriveId(driveId);
-      setRootFolderDisplayId(tempRootFolderName.trim());
-      toast({ title: "Success", description: `Root folder set to: "${tempRootFolderName.trim()}".` });
-    }
-    setIsSelectingFolder(false);
+    await findOrCreateFolderAPI(tempRootFolderName.trim());
   };
+
+  const handleSelectExistingFolder = () => {
+    if (!isDriveConnected || !pickerApiLoaded || !GOOGLE_API_KEY || !accessToken) {
+      toast({ variant: "destructive", title: "Error", description: "Drive not connected or Picker API not ready." });
+      return;
+    }
+    setIsSettingRootFolder(true);
+    const view = new (window as any).google.picker.View((window as any).google.picker.ViewId.FOLDERS);
+    view.setMimeTypes("application/vnd.google-apps.folder");
+
+    const picker = new (window as any).google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(GOOGLE_API_KEY)
+      .setCallback((data: any) => { // google.picker.ResponseObject
+        if (data.action === (window as any).google.picker.Action.PICKED) {
+          const doc = data[(window as any).google.picker.Response.DOCUMENTS][0] as PickerDocument;
+          setRootFolderDriveId(doc.id);
+          setRootFolderDisplayId(doc.name);
+          toast({ title: "Folder Selected", description: `Root folder set to: "${doc.name}".` });
+        }
+        setIsSettingRootFolder(false);
+      })
+      .build();
+    picker.setVisible(true);
+  };
+
 
   const addNewArrangement = () => {
     arrangementIdCounter++;
@@ -293,7 +326,7 @@ export default function DriveTuneApp() {
 
 
   const processArrangement = async (arrangement: Arrangement) => {
-    if (!rootFolderDriveId) {
+    if (!rootFolderDriveId || !rootFolderDisplayId) {
        updateArrangement(arrangement.id, { status: 'error', statusMessage: 'Root Drive folder not set.', error: 'Root folder missing.' });
        return;
     }
@@ -345,7 +378,7 @@ export default function DriveTuneApp() {
       });
       
       const conceptualDirResult = await createMusicSheetDirectory({
-        rootFolderName: rootFolderDisplayId!, 
+        rootFolderName: rootFolderDisplayId,
         arrangement_type: metadata.arrangement_type,
       });
 
@@ -473,14 +506,18 @@ export default function DriveTuneApp() {
       </header>
 
       <div className="w-full max-w-3xl space-y-6">
-        {!GOOGLE_CLIENT_ID ? (
+        {!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY ? (
             <Card className="border-destructive bg-destructive/10">
                 <CardHeader>
                     <CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2 h-6 w-6"/>Configuration Incomplete</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <p className="text-destructive-foreground">
-                        Client-side Google Client ID is not configured. Please set <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in your environment variables.
+                        Google Client ID or API Key is not configured. Please set 
+                        {!GOOGLE_CLIENT_ID && <code className="bg-destructive/20 px-1 rounded mx-1">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code>}
+                        {!GOOGLE_CLIENT_ID && !GOOGLE_API_KEY && " and "}
+                        {!GOOGLE_API_KEY && <code className="bg-destructive/20 px-1 rounded mx-1">NEXT_PUBLIC_GOOGLE_API_KEY</code>}
+                        in your environment variables.
                         Follow the instructions in the <code className="bg-destructive/20 px-1 rounded">.env</code> file.
                     </p>
                 </CardContent>
@@ -509,32 +546,41 @@ export default function DriveTuneApp() {
         {isDriveConnected && (
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center"><FolderOpenDot className="mr-2 h-6 w-6 text-primary" />Step 2: Select/Create Root Folder</CardTitle>
-              <CardDescription>Choose a name for the main folder in your Drive where sheets will be organized.</CardDescription>
+              <CardTitle className="flex items-center"><FolderOpenDot className="mr-2 h-6 w-6 text-primary" />Step 2: Select or Create Root Folder</CardTitle>
+              <CardDescription>Choose a main folder in Drive for organization. Either select an existing one or create one by name.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="rootFolder">Root Folder Name</Label>
-                <Input
-                  id="rootFolder"
-                  value={tempRootFolderName}
-                  onChange={(e) => setTempRootFolderName(e.target.value)}
-                  placeholder="e.g., My DriveTune Sheets"
-                  disabled={!!rootFolderDriveId || isSelectingFolder}
-                />
+                <Label htmlFor="rootFolder">Create Root Folder by Name:</Label>
+                <div className="flex space-x-2">
+                    <Input
+                    id="rootFolder"
+                    value={tempRootFolderName}
+                    onChange={(e) => setTempRootFolderName(e.target.value)}
+                    placeholder="e.g., My DriveTune Sheets"
+                    disabled={!!rootFolderDriveId || isSettingRootFolder}
+                    />
+                    <Button onClick={handleSetRootFolderByName} disabled={isSettingRootFolder || !tempRootFolderName.trim() || !isDriveConnected || !!rootFolderDriveId} className="whitespace-nowrap">
+                        {isSettingRootFolder && !rootFolderDriveId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Set by Name
+                    </Button>
+                </div>
+              </div>
+              <div>
+                <Button onClick={handleSelectExistingFolder} disabled={isSettingRootFolder || !isDriveConnected || !pickerApiLoaded || !!rootFolderDriveId || !GOOGLE_API_KEY} className="w-full" variant="outline">
+                    <FolderSearch className="mr-2 h-4 w-4" />
+                    {isSettingRootFolder && !rootFolderDriveId ? "Loading Picker..." : "Select Existing Folder from Drive"}
+                </Button>
               </div>
             </CardContent>
             <CardFooter>
-              {!rootFolderDriveId ? (
-                <Button onClick={handleSelectRootFolder} disabled={isSelectingFolder || !tempRootFolderName.trim() || !isDriveConnected} className="w-full">
-                  {isSelectingFolder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Set Root Folder in Drive
-                </Button>
-              ) : (
+             {rootFolderDriveId ? (
                  <div className="flex items-center text-green-600 p-3 bg-green-50 border border-green-200 rounded-md w-full">
                     <CheckCircle className="mr-2 h-5 w-5" />
-                    <span>Root folder in Drive: "{rootFolderDisplayId}"</span>
+                    <span>Root folder selected: "{rootFolderDisplayId}" (ID: {rootFolderDriveId.substring(0,10)}...)</span>
                   </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No root folder selected yet.</p>
               )}
             </CardFooter>
           </Card>
@@ -544,7 +590,7 @@ export default function DriveTuneApp() {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><UploadCloud className="mr-2 h-6 w-6 text-primary" />Step 3: Add & Organize Arrangements</CardTitle>
-              <CardDescription>Upload PDF(s) per arrangement. They'll be merged, metadata extracted by AI, parts split, named, and organized into: {rootFolderDisplayId}/[Arrangement Type]/[Arrangement Name] - [Part Name].pdf</CardDescription>
+              <CardDescription>Upload PDF(s) per arrangement. They'll be merged, metadata extracted, parts split, named, and organized into: {rootFolderDisplayId}/[Arrangement Type]/[Arrangement Name] - [Part Name].pdf</CardDescription>
             </CardHeader>
             <CardContent>
               <Button onClick={addNewArrangement} variant="outline" className="w-full mb-4">
@@ -600,3 +646,4 @@ export default function DriveTuneApp() {
   );
 }
 
+    
