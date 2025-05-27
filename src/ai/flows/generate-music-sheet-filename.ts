@@ -2,55 +2,51 @@
 'use server';
 
 /**
- * @fileOverview This file defines a Genkit flow for generating standardized music sheet filenames based on extracted metadata.
+ * @fileOverview This file defines a Genkit flow for generating standardized music sheet filenames 
+ * for individual parts based on extracted metadata.
  *
- * - generateMusicSheetFilename - A function that takes music sheet metadata as input and returns a standardized filename.
- * - MusicSheetMetadataInput - The input type for the generateMusicSheetFilename function.
+ * - generateMusicSheetFilename - A function that takes part metadata and returns a standardized filename.
+ * - MusicSheetPartMetadataInput - The input type for the generateMusicSheetFilename function.
  * - MusicSheetFilenameOutput - The return type for the generateMusicSheetFilename function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-const MusicSheetMetadataInputSchema = z.object({
-  fileSubject: z.string().describe('The specific part or content of the file (e.g., "Full Score", "Violin I").'),
-  instrumentations: z.string().describe('A comma-separated list of instruments or voice parts (e.g., "Flute, Oboe", "Piano"). This will be used to form part of the filename.'),
+// Renamed from MusicSheetMetadataInput to be more specific to part-level filename generation
+const MusicSheetPartMetadataInputSchema = z.object({
+  partLabel: z.string().describe('The label of the specific part (e.g., "Full Score", "Violin I"). This will be the main subject of the filename.'),
+  // Instrumentations here will be simplified to just the partLabel itself for the filename format requested.
 });
-export type MusicSheetMetadataInput = z.infer<typeof MusicSheetMetadataInputSchema>;
+export type MusicSheetPartMetadataInput = z.infer<typeof MusicSheetPartMetadataInputSchema>;
 
 const MusicSheetFilenameOutputSchema = z.object({
-  filename: z.string().describe('The generated standardized filename for the music sheet.'),
+  filename: z.string().describe('The generated standardized filename for the music sheet part (e.g., "Violin I - Violin I.pdf").'),
 });
 export type MusicSheetFilenameOutput = z.infer<typeof MusicSheetFilenameOutputSchema>;
 
-export async function generateMusicSheetFilename(input: MusicSheetMetadataInput): Promise<MusicSheetFilenameOutput> {
+export async function generateMusicSheetFilename(input: MusicSheetPartMetadataInput): Promise<MusicSheetFilenameOutput> {
   return generateMusicSheetFilenameFlow(input);
 }
 
 const prompt = ai.definePrompt({
   name: 'generateMusicSheetFilenamePrompt',
-  input: {schema: MusicSheetMetadataInputSchema},
+  input: {schema: MusicSheetPartMetadataInputSchema},
   output: {schema: MusicSheetFilenameOutputSchema},
-  prompt: `You are a music librarian tasked with generating a standardized filename.
+  prompt: `You are a music librarian tasked with generating a standardized filename for a specific music sheet part.
 
-  Metadata:
-  - File Subject: {{{fileSubject}}}
-  - Instrumentations (comma-separated): {{{instrumentations}}}
+  Part Label: {{{partLabel}}}
 
   Generate a filename using this format:
-  [File Subject] - [Instrumentations joined by hyphens].pdf
+  [Part Label] - [Part Label].pdf
 
-  For example, if File Subject is "Violin I" and Instrumentations is "Violin, Viola, Cello", the filename should be:
-  "Violin I - Violin-Viola-Cello.pdf"
+  For example:
+  - If Part Label is "Violin I", the filename should be: "Violin I - Violin I.pdf"
+  - If Part Label is "Full Score", the filename should be: "Full Score - Full Score.pdf"
+  - If Part Label is "Bb Clarinet 1", the filename should be: "Bb Clarinet 1 - Bb Clarinet 1.pdf"
 
-  If File Subject is "Adagio" and Instrumentations is "Flute", the filename should be:
-  "Adagio - Flute.pdf"
-
-  If File Subject is "Full Score" and Instrumentations is "Full Score", the filename should be:
-  "Full Score - Full Score.pdf"
-
-  Ensure the filename is suitable for use in Google Drive and does not contain any invalid characters.
-  Replace any slashes or other invalid characters in the File Subject or Instrumentations with hyphens before constructing the filename.
+  Ensure the filename is suitable for use in Google Drive. Replace any slashes or other invalid characters in the Part Label with hyphens before constructing the filename.
+  For instance, if Part Label is "Flute/Piccolo", the filename should be "Flute-Piccolo - Flute-Piccolo.pdf".
   Return ONLY the filename in the output. Do not include any additional text or explanations.
   `,
 });
@@ -58,11 +54,23 @@ const prompt = ai.definePrompt({
 const generateMusicSheetFilenameFlow = ai.defineFlow(
   {
     name: 'generateMusicSheetFilenameFlow',
-    inputSchema: MusicSheetMetadataInputSchema,
+    inputSchema: MusicSheetPartMetadataInputSchema,
     outputSchema: MusicSheetFilenameOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    // Sanitize partLabel for filename usage (replace slashes, etc.)
+    const sanitizedPartLabel = input.partLabel.replace(/[/\\]/g, '-');
+    
+    // Call the prompt with the sanitized label for both fields implicitly expected by its structure
+    const {output} = await prompt({ partLabel: sanitizedPartLabel });
+    
+    if (!output || !output.filename) {
+        throw new Error("AI failed to generate filename or output was empty.");
+    }
+    // Ensure the filename ends with .pdf, as the prompt might sometimes omit it if not perfectly followed.
+    if (!output.filename.toLowerCase().endsWith('.pdf')) {
+        output.filename += '.pdf';
+    }
+    return output;
   }
 );
