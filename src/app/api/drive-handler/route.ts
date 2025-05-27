@@ -1,7 +1,9 @@
+
 // src/app/api/drive-handler/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
+import type { OAuth2Client } from 'google-auth-library';
+import { Readable } from 'stream';
 
 async function getAuthenticatedClient(accessToken: string): Promise<OAuth2Client> {
   const oauth2Client = new google.auth.OAuth2();
@@ -62,9 +64,10 @@ export async function POST(request: NextRequest) {
           name: fileName,
           parents: [parentFolderId],
         };
+        const buffer = Buffer.from(fileContentBase64, 'base64');
         const media = {
           mimeType: mimeType,
-          body: Buffer.from(fileContentBase64, 'base64'),
+          body: Readable.from(buffer), // Convert Buffer to ReadableStream
         };
         const uploadResponse = await drive.files.create({
           requestBody: fileMetadata,
