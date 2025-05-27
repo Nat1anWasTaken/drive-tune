@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useToast } from "./use-toast"; // Assuming useToast is in the same directory or adjust path
 import { GoogleDriveAuth } from "./useGoogleDriveAuth"; // Import the auth hook
 
@@ -32,10 +32,20 @@ export function useGoogleDriveFolderManager(
   auth: GoogleDriveAuth // Pass the auth state from useGoogleDriveAuth
 ): GoogleDriveFolderManager {
   const [rootFolderDisplayId, setRootFolderDisplayId] = useState<string | null>(
-    null
+    () => {
+      if (typeof window !== "undefined") {
+        return localStorage.getItem("driveTuneRootFolderDisplayName");
+      }
+      return null;
+    }
   );
   const [rootFolderDriveId, setRootFolderDriveId] = useState<string | null>(
-    null
+    () => {
+      if (typeof window !== "undefined") {
+        return localStorage.getItem("driveTuneRootFolderId");
+      }
+      return null;
+    }
   );
   const [isSettingRootFolder, setIsSettingRootFolder] = useState(false);
   const [tempRootFolderName, setTempRootFolderName] = useState(
@@ -44,6 +54,22 @@ export function useGoogleDriveFolderManager(
 
   const { toast } = useToast();
   const { accessToken, isDriveConnected, pickerApiLoaded } = auth;
+
+  useEffect(() => {
+    if (rootFolderDriveId) {
+      localStorage.setItem("driveTuneRootFolderId", rootFolderDriveId);
+    } else {
+      localStorage.removeItem("driveTuneRootFolderId");
+    }
+    if (rootFolderDisplayId) {
+      localStorage.setItem(
+        "driveTuneRootFolderDisplayName",
+        rootFolderDisplayId
+      );
+    } else {
+      localStorage.removeItem("driveTuneRootFolderDisplayName");
+    }
+  }, [rootFolderDriveId, rootFolderDisplayId]);
 
   const findOrCreateFolderAPI = useCallback(
     async (

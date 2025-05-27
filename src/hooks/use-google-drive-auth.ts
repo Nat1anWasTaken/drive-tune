@@ -30,11 +30,17 @@ export interface GoogleDriveAuth {
   isConnecting: boolean;
   isDriveConnected: boolean;
   handleConnectDrive: () => void;
+  handleSignOut: () => void; // Added for sign out
   tokenClient: TokenClient | null; // Exposing tokenClient if needed by other hooks like picker
 }
 
 export function useGoogleDriveAuth(): GoogleDriveAuth {
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("googleDriveAccessToken");
+    }
+    return null;
+  });
   const [tokenClient, setTokenClient] = useState<TokenClient | null>(null);
   const [gapiReady, setGapiReady] = useState(false);
   const [gisReady, setGisReady] = useState(false);
@@ -46,6 +52,14 @@ export function useGoogleDriveAuth(): GoogleDriveAuth {
   const isDriveConnected = !!accessToken && gapiReady && gisReady;
 
   useEffect(() => {
+    if (accessToken) {
+      localStorage.setItem("googleDriveAccessToken", accessToken);
+    } else {
+      localStorage.removeItem("googleDriveAccessToken");
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
     const scriptGapi = document.createElement("script");
     scriptGapi.src = "https://apis.google.com/js/api.js";
     scriptGapi.async = true;
@@ -55,6 +69,12 @@ export function useGoogleDriveAuth(): GoogleDriveAuth {
         setGapiReady(true); // gapi.client is available
         setPickerApiLoaded(true); // gapi.picker is available
         // console.log("GAPI and Picker API loaded.");
+        // Attempt to initialize gapi.client if token exists from localStorage
+        if (localStorage.getItem("googleDriveAccessToken")) {
+          window.gapi.client.setToken({
+            access_token: localStorage.getItem("googleDriveAccessToken"),
+          });
+        }
       });
     };
     document.body.appendChild(scriptGapi);
@@ -84,6 +104,9 @@ export function useGoogleDriveAuth(): GoogleDriveAuth {
           setIsConnecting(false);
           if (tokenResponse && tokenResponse.access_token) {
             setAccessToken(tokenResponse.access_token);
+            window.gapi.client.setToken({
+              access_token: tokenResponse.access_token,
+            }); // Ensure gapi client also has the token
             // console.log("Access token received:", tokenResponse.access_token);
             toast({
               title: "Google Drive Connected",
@@ -138,6 +161,21 @@ export function useGoogleDriveAuth(): GoogleDriveAuth {
     }
   }, [tokenClient, toast]);
 
+  const handleSignOut = useCallback(() => {
+    setAccessToken(null);
+    // Optionally, revoke the token if Google API supports it and it's necessary
+    // For now, just clearing it client-side
+    if (window.google?.accounts?.oauth2 && accessToken) {
+      window.google.accounts.oauth2.revoke(accessToken, () => {
+        // console.log("Token revoked");
+      });
+    }
+    toast({
+      title: "Disconnected",
+      description: "You have been signed out from Google Drive.",
+    });
+  }, [toast, accessToken]);
+
   return {
     accessToken,
     gapiReady,
@@ -146,6 +184,7 @@ export function useGoogleDriveAuth(): GoogleDriveAuth {
     isConnecting,
     isDriveConnected,
     handleConnectDrive,
+    handleSignOut, // Added
     tokenClient,
   };
 }

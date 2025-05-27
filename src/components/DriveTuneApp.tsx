@@ -39,6 +39,7 @@ export default function DriveTuneApp() {
     isDriveConnected,
     isConnecting,
     handleConnectDrive,
+    handleSignOut, // Added
     // gapiReady, gisReady, pickerApiLoaded, // these are usually internal to the auth/folder hooks
   } = auth;
 
@@ -158,6 +159,12 @@ export default function DriveTuneApp() {
                 Token: {accessToken.substring(0, 30)}...
               </p>
             )}
+            <button
+              onClick={handleSignOut} // Added sign out button
+              className="mt-2 w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded transition duration-150 ease-in-out text-sm"
+            >
+              Sign Out
+            </button>
           </div>
         )}
       </section>
