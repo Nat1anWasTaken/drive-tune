@@ -43,21 +43,22 @@ export interface ProcessedPart extends PartInformation {
 }
 
 export type ArrangementStatus =
-  | 'pending_upload' // Waiting for file to be added
-  | 'ready_to_process' // File uploaded, ready for processing
-  | 'merging_files' // If multiple files, currently merging them
-  | 'reading_file'     // Reading the main PDF file (single or merged)
-  | 'extracting_metadata' // AI extracting metadata for all parts
-  | 'creating_drive_folder_structure' // Creating folders in Google Drive
-  | 'processing_parts'  // Looping through parts (splitting, naming, uploading)
-  | 'all_parts_processed' // All parts processed (some might have errors)
-  | 'done' // Arrangement fully processed successfully
-  | 'error'; // Error at the arrangement level
+  | "pending_upload" // Waiting for file to be added
+  | "ready_to_process" // File uploaded, ready for processing
+  | "merging_files" // If multiple files, currently merging them
+  | "reading_file" // Reading the main PDF file (single or merged)
+  | "extracting_metadata" // AI extracting metadata for all parts
+  | "creating_drive_folder_structure" // Creating folders in Google Drive
+  | "creating_arrangement_folder" // Creating a specific folder for the arrangement
+  | "processing_parts" // Looping through parts (splitting, naming, uploading)
+  | "all_parts_processed" // All parts processed (some might have errors)
+  | "done" // Arrangement fully processed successfully
+  | "error"; // Error at the arrangement level
 
 export type PartStatus =
-  | 'pending' // Part identified, waiting for individual processing
-  | 'splitting' // If PDF splitting is needed for this part
-  | 'naming' // Generating filename for this part
-  | 'uploading_to_drive' // Uploading this part to Google Drive
-  | 'done' // Part processed successfully and uploaded
-  | 'error'; // Error processing this part
+  | "pending" // Part identified, waiting for individual processing
+  | "splitting" // If PDF splitting is needed for this part
+  | "naming" // Generating filename for this part
+  | "uploading_to_drive" // Uploading this part to Google Drive
+  | "done" // Part processed successfully and uploaded
+  | "error"; // Error processing this part

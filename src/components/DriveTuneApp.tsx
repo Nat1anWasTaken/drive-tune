@@ -45,12 +45,15 @@ import { PDFDocument } from "pdf-lib";
 // Ensure this is set in your .env.local file
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 const GOOGLE_PICKER_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY; // Needed for Google Picker API
-const DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file"; // Sufficient for picker and file operations
+// Sufficient for picker and file operations
+// const DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_SCOPES =
+  "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly"; // Added metadata scope for picker
 
 let arrangementIdCounter = 0;
 
 // Helper to convert ArrayBuffer to Base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+function arrayBufferToBase64(buffer: ArrayBufferLike): string {
   let binary = "";
   const bytes = new Uint8Array(buffer);
   const len = bytes.byteLength;
@@ -210,12 +213,15 @@ export default function DriveTuneApp() {
             result.error || `Failed to find or create folder "${folderName}"`
           );
         }
-        setRootFolderDriveId(result.driveId);
-        setRootFolderDisplayId(folderName);
-        toast({
-          title: "Success",
-          description: `Root folder set to: "${folderName}".`,
-        });
+        // Only update the global root folder state if we are actually creating/finding the root.
+        if (parentFolderId === "root") {
+          setRootFolderDriveId(result.driveId);
+          setRootFolderDisplayId(folderName);
+          toast({
+            title: "Success",
+            description: `Root folder set to: "${folderName}".`,
+          });
+        }
         return result.driveId;
       } catch (error: any) {
         console.error("Error finding or creating folder via API:", error);
@@ -267,9 +273,9 @@ export default function DriveTuneApp() {
       return;
     }
     setIsSettingRootFolder(true);
-    const view = new (window as any).google.picker.View(
-      (window as any).google.picker.ViewId.FOLDERS
-    );
+    const view = new (
+      window as any
+    ).google.picker.DocsView().setSelectFolderEnabled(true);
     view.setMimeTypes("application/vnd.google-apps.folder");
 
     const picker = new (window as any).google.picker.PickerBuilder()
@@ -565,8 +571,24 @@ export default function DriveTuneApp() {
           `Failed to create or find folder for arrangement type: ${metadata.arrangement_type}`
         );
       }
+
+      // Create a specific folder for the current arrangement
       updateArrangement(arrangement.id, {
-        targetDirectoryDriveId: arrangementTypeFolderDriveId,
+        status: "creating_arrangement_folder",
+        statusMessage: `Creating folder for arrangement \"${currentArrangementName}\"...`,
+      });
+      const arrangementSpecificFolderDriveId = await findOrCreateFolderAPI(
+        currentArrangementName, // Use the extracted title as the folder name
+        arrangementTypeFolderDriveId
+      );
+      if (!arrangementSpecificFolderDriveId) {
+        throw new Error(
+          `Failed to create or find folder for arrangement: \"${currentArrangementName}\"`
+        );
+      }
+
+      updateArrangement(arrangement.id, {
+        // targetDirectoryDriveId: arrangementTypeFolderDriveId, // This will now be the parent of the arrangement-specific folder
         status: "processing_parts",
         statusMessage: "Processing individual parts...",
       });
@@ -627,18 +649,18 @@ export default function DriveTuneApp() {
           const driveFileId = await uploadFileToDriveAPI(
             partPdfBytes,
             generatedFilename,
-            arrangementTypeFolderDriveId
+            arrangementSpecificFolderDriveId // Use the arrangement-specific folder ID here
           );
           if (!driveFileId) {
             throw new Error(
-              `Failed to upload "${generatedFilename}" to Drive.`
+              `Failed to upload \"${generatedFilename}\" to Drive.`
             );
           }
           updatePartStatus(
             arrangement.id,
             part.id,
             "done",
-            `Organized in Drive as ${metadata.arrangement_type}/${generatedFilename}`,
+            `Organized in Drive as ${metadata.arrangement_type}/${currentArrangementName}/${generatedFilename}`, // Updated path
             { driveFileId }
           );
         } catch (partError: any) {
