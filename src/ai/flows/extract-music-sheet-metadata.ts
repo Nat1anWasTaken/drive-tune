@@ -1,3 +1,4 @@
+
 // src/ai/flows/extract-music-sheet-metadata.ts
 'use server';
 /**
@@ -5,7 +6,7 @@
  *
  * - extractMusicSheetMetadata - A function that handles the metadata extraction process.
  * - ExtractMusicSheetMetadataInput - The input type for the extractMusicSheetMetadata function.
- * - ExtractMusicSheetMetadataOutput - The return type for the extractMusicSheetMetadata function (now includes title, composers, arrangement_type, and parts).
+ * - ExtractMusicSheetMetadataOutput - The return type for the extractMusicSheetMetadata function (now includes title, composers, arrangement_type, and parts with primaryInstrumentation).
  */
 
 import {ai} from '@/ai/genkit';
@@ -25,6 +26,7 @@ const PartInformationSchema = z.object({
   is_full_score: z.boolean().describe("Indicates whether this part is the full score. If the music file includes introductions, prefaces, or other textual content, categorize it within the full score."),
   start_page: z.number().int().describe("The starting page number of this part in the document."),
   end_page: z.number().int().describe("The ending page number of this part in the document."),
+  primaryInstrumentation: z.string().describe("The primary instrument name for this part, suitable for use in a filename (e.g., 'Flute', 'Violin I', 'Full Score', 'Trumpet-Bb'). If the part is for multiple instruments like 'Flute/Piccolo', use a hyphenated form like 'Flute-Piccolo'. This should generally match or be derived from the label.")
 });
 
 const ExtractMusicSheetMetadataOutputSchema = z.object({
@@ -53,6 +55,7 @@ As your assistant, I will provide you with a PDF file containing sheet music. Pl
   - **is_full_score**: Indicates whether this part is the full score. If the music file includes introductions, prefaces, or other textual content, categorize it within the full score.
   - **start_page**: The starting page number of this part in the document.
   - **end_page**: The ending page number of this part in the document.
+  - **primaryInstrumentation**: The primary instrument name for this part, suitable for use in a filename (e.g., 'Flute', 'Violin I', 'Full Score', 'Trumpet-Bb'). If the part is for multiple instruments like 'Flute/Piccolo', use a hyphenated form like 'Flute-Piccolo'. This should generally match or be derived from the label. For a 'Full Score' label, use 'Full Score' as primaryInstrumentation.
 
 Please extract all fields as JSON only.
 `;
@@ -87,13 +90,18 @@ const extractMusicSheetMetadataFlow = ai.defineFlow(
         if (!output.composers || output.composers.length === 0) missingFields.push("composers");
         if (!output.arrangement_type) missingFields.push("arrangement_type");
         if (!output.parts || output.parts.length === 0) missingFields.push("parts");
-        for (const part of output.parts || []) {
-            if (!part.label) missingFields.push("part.label");
-            if (part.is_full_score === undefined) missingFields.push("part.is_full_score");
-            if (part.start_page === undefined) missingFields.push("part.start_page");
-            if (part.end_page === undefined) missingFields.push("part.end_page");
+        
+        (output.parts || []).forEach((part, index) => {
+            if (!part.label) missingFields.push(`parts[${index}].label`);
+            if (part.is_full_score === undefined) missingFields.push(`parts[${index}].is_full_score`);
+            if (part.start_page === undefined) missingFields.push(`parts[${index}].start_page`);
+            if (part.end_page === undefined) missingFields.push(`parts[${index}].end_page`);
+            if (!part.primaryInstrumentation) missingFields.push(`parts[${index}].primaryInstrumentation`);
+        });
+
+        if (missingFields.length > 0) {
+           throw new Error(`AI could not extract all required metadata fields. Missing or invalid: ${missingFields.join(', ')}`);
         }
-        throw new Error(`AI could not extract all required metadata fields. Missing or invalid: ${missingFields.join(', ')}`);
     }
     return output;
   }

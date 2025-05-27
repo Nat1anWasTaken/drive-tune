@@ -1,3 +1,4 @@
+
 // src/types/index.ts
 
 // Information for a single part within a music sheet
@@ -6,10 +7,8 @@ export type PartInformation = {
   is_full_score: boolean;
   start_page: number;
   end_page: number;
-  // New fields based on previous discussion.
-  // The 'label' field might serve as 'fileSubject' for part naming.
-  // 'instrumentations' will be an array of strings.
   instrumentations?: string[]; // e.g. ["Flute", "Oboe", "Clarinet"] or ["Full Score"]
+  primaryInstrumentation: string; // e.g., "Flute", "Violin I", "Full Score", "Trumpet-Bb"
 };
 
 // Output schema for the metadata extraction flow
@@ -18,18 +17,12 @@ export interface ExtractedMusicSheetMetadata {
   composers: string[]; // Array of composer/arranger names
   arrangement_type: string; // e.g., "Concert Band", "String Quartet"
   parts: PartInformation[]; // Array of parts found in the sheet (was PartMetadata, now PartInformation)
-
-  // These fields seem to be based on the filename format discussion,
-  // but metadata extraction itself should focus on what's *in* the document.
-  // The filename generation flow will synthesize these from 'parts.label'.
-  // fileSubject?: string;
-  // instrumentationsInTheFile?: string[];
 }
 
 // Represents an "Arrangement" uploaded by the user
 export interface Arrangement {
   id: string; // Unique ID for this arrangement
-  name: string; // User-editable name for the arrangement (e.g., "Bolero Arrangement")
+  name: string; // User-editable name for the arrangement (e.g., "Bolero Arrangement"), will be updated with extracted title
   files?: File[]; // Array of PDF files for this arrangement
   dataUri?: string; // Data URI of the (potentially merged) file
   status: ArrangementStatus; // Overall status of processing this arrangement

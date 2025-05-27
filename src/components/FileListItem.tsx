@@ -8,10 +8,8 @@ import { CheckCircle2, XCircle, Loader2, FileText, Edit3, Cog } from "lucide-rea
 
 interface PartListItemProps {
   part: ProcessedPart;
-  arrangementName?: string;
-  arrangementType?: string;
-  rootFolderName?: string;
-  // targetDirectoryPath is no longer needed as we reconstruct the path preview
+  arrangementType?: string; // Arrangement type, e.g., "Percussion Ensemble"
+  rootFolderName?: string; // e.g., "My Music Sheets"
 }
 
 const getStatusIcon = (status: PartStatus) => {
@@ -42,28 +40,39 @@ const getProgressValue = (status: PartStatus): number => {
   }
 }
 
-export function PartListItem({ part, arrangementName, arrangementType, rootFolderName }: PartListItemProps) {
+export function PartListItem({ part, arrangementType, rootFolderName }: PartListItemProps) {
   const progressValue = getProgressValue(part.status);
 
   const getDisplayPath = () => {
-    if (!part.generatedFilename || !arrangementName || !arrangementType || !rootFolderName) {
+    // The filename (part.generatedFilename) now includes the arrangement name.
+    // e.g., "- MIRA - - Glockenspiel.pdf"
+    if (!part.generatedFilename || !arrangementType) {
       return part.generatedFilename || "Filename pending...";
     }
-    // Show a simplified path like: .../Arrangement Type/Arrangement Name/filename.pdf
-    // This assumes rootFolderName is just one segment. If it can be complex, adjust.
-    const pathSegments = [arrangementType, arrangementName, part.generatedFilename];
-    if (pathSegments.length > 3) {
-        return `.../${pathSegments.slice(-3).join('/')}`;
+    // Display path is like: {Arrangement Type}/{Generated Filename}
+    // e.g. "Percussion Ensemble/- MIRA - - Glockenspiel.pdf"
+    const displaySegments = [arrangementType, part.generatedFilename];
+    const displayStr = displaySegments.join('/');
+    
+    if (displayStr.length > 60) { // Heuristic for long paths to shorten display
+        return `.../${part.generatedFilename}`;
     }
-    return `${pathSegments.join('/')}`;
+    return displayStr;
+  }
+
+  const fullPathTitle = () => {
+    if (!part.generatedFilename || !arrangementType || !rootFolderName) {
+        return part.generatedFilename || "Path details unavailable";
+    }
+    return `${rootFolderName}/${arrangementType}/${part.generatedFilename}`;
   }
 
   return (
     <Card className="mb-2 shadow-sm border-border/70">
       <CardContent className="p-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-medium truncate max-w-[calc(100%-2.5rem)]" title={part.label}>
-            Part: {part.label}
+          <span className="text-sm font-medium truncate max-w-[calc(100%-2.5rem)]" title={`Part Label: ${part.label} | Primary Instrumentation: ${part.primaryInstrumentation}`}>
+            Part: {part.label} 
           </span>
           {getStatusIcon(part.status)}
         </div>
@@ -71,8 +80,8 @@ export function PartListItem({ part, arrangementName, arrangementType, rootFolde
         <Progress value={progressValue} className="h-1.5" />
         {part.error && <p className="text-destructive text-xs mt-1.5">{part.error}</p>}
         
-        {part.status === 'done' && part.generatedFilename && arrangementName && arrangementType && rootFolderName && (
-          <p className="text-xs text-green-600 mt-1.5 truncate" title={`${rootFolderName}/${arrangementType}/${arrangementName}/${part.generatedFilename}`}>
+        {part.status === 'done' && part.generatedFilename && arrangementType && rootFolderName && (
+          <p className="text-xs text-green-600 mt-1.5 truncate" title={fullPathTitle()}>
             Organized as: {getDisplayPath()}
           </p>
         )}
@@ -85,4 +94,3 @@ export function PartListItem({ part, arrangementName, arrangementType, rootFolde
     </Card>
   );
 }
-
