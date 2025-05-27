@@ -417,115 +417,125 @@ export function useArrangementManager(
           );
         }
         updateArrangement(arrangement.id, {
-          targetDirectoryDriveId: arrangementFolderDriveId, // Store this ID
+          targetDirectoryDriveId: arrangementFolderDriveId,
         });
 
         // 6. Process each part
         updateArrangement(arrangement.id, {
           status: "processing_parts" as ArrangementStatus,
-          statusMessage: "Processing individual parts...",
+          statusMessage: `Processing ${metadata.parts.length} parts...`,
         });
 
-        const originalPdfDoc = await PDFDocument.load(
-          await mergedFile.arrayBuffer()
-        );
+        const mergedPdfArrayBuffer = await mergedFile.arrayBuffer();
+        const pdfDocToSplit = await PDFDocument.load(mergedPdfArrayBuffer);
 
-        for (const part of initialProcessedParts) {
-          try {
-            updatePartStatus(
-              arrangement.id,
-              part.id,
-              "splitting" as PartStatus,
-              `Splitting part: ${part.label}...`
-            );
-            const partPdfBytes = await splitPdfPart(
-              originalPdfDoc,
-              part.start_page,
-              part.end_page
-            );
+        let allIndividualPartsProcessedSuccessfully = true;
+        let anyIndividualPartFailed = false;
 
-            // Generate filename (example: "Bolero-Flute_I.pdf")
-            const sanitizedArrangementName = newArrangementName
-              .replace(/[\/\\:\*\?"<>\|]/g, "_")
-              .replace(/\s+/g, "_");
-            const sanitizedPartName = part.label
-              .replace(/[\/\\:\*\?"<>\|]/g, "_")
-              .replace(/\s+/g, "_");
-            const generatedFilename = `${sanitizedArrangementName}-${sanitizedPartName}.pdf`;
-
-            updatePartStatus(
-              arrangement.id,
-              part.id,
-              "naming" as PartStatus, // Using "naming" status from types/index.ts
-              `Generated filename: ${generatedFilename}`,
-              { generatedFilename }
-            );
-
-            updatePartStatus(
-              arrangement.id,
-              part.id,
-              "uploading_to_drive" as PartStatus, // Using "uploading_to_drive"
-              `Uploading ${generatedFilename} to Drive...`
-            );
-
-            const driveFileId = await uploadFileToDriveAPI(
-              partPdfBytes,
-              generatedFilename,
-              arrangementFolderDriveId
-            );
-
-            if (driveFileId) {
+        if (initialProcessedParts.length === 0) {
+          // No parts defined by metadata, consider the arrangement 'done'
+          updateArrangement(arrangement.id, {
+            status: "done" as ArrangementStatus,
+            statusMessage:
+              "Metadata extracted, no individual parts to process.",
+          });
+        } else {
+          for (const part of initialProcessedParts) {
+            try {
               updatePartStatus(
                 arrangement.id,
                 part.id,
-                "done" as PartStatus, // Using "done"
-                "Part processed and uploaded successfully.",
-                { driveFileId }
+                "processing" as PartStatus,
+                `Processing: ${part.label}`
               );
-            } else {
-              throw new Error("Upload to Drive failed, file ID not received.");
+
+              const partPdfBytes = await splitPdfPart(
+                pdfDocToSplit,
+                part.start_page,
+                part.end_page
+              );
+
+              const generatedPartFilename = `${newArrangementName} - ${part.label}.pdf`;
+
+              if (!arrangementFolderDriveId) {
+                updatePartStatus(
+                  arrangement.id,
+                  part.id,
+                  "error" as PartStatus,
+                  `Error: Arrangement folder ID missing for ${part.label}.`,
+                  { error: "Arrangement folder ID missing." }
+                );
+                allIndividualPartsProcessedSuccessfully = false;
+                anyIndividualPartFailed = true;
+                continue;
+              }
+
+              const partDriveId = await uploadFileToDriveAPI(
+                partPdfBytes,
+                generatedPartFilename,
+                arrangementFolderDriveId
+              );
+
+              if (partDriveId) {
+                updatePartStatus(
+                  arrangement.id,
+                  part.id,
+                  "done" as PartStatus,
+                  `Uploaded: ${part.label}`,
+                  {
+                    driveFileId: partDriveId,
+                    generatedFilename: generatedPartFilename,
+                  }
+                );
+              } else {
+                updatePartStatus(
+                  arrangement.id,
+                  part.id,
+                  "error" as PartStatus,
+                  `Error: Failed to upload ${part.label}. Check notifications.`,
+                  { error: `Failed to upload ${part.label}.` }
+                );
+                allIndividualPartsProcessedSuccessfully = false;
+                anyIndividualPartFailed = true;
+              }
+            } catch (e: any) {
+              console.error(
+                `Error processing part ${part.label} for arrangement ${arrangement.id}:`,
+                e
+              );
+              updatePartStatus(
+                arrangement.id,
+                part.id,
+                "error" as PartStatus,
+                `Error processing ${part.label}: ${e.message}`,
+                { error: e.message }
+              );
+              allIndividualPartsProcessedSuccessfully = false;
+              anyIndividualPartFailed = true;
             }
-          } catch (partError: any) {
-            console.error(`Error processing part ${part.label}:`, partError);
-            updatePartStatus(
-              arrangement.id,
-              part.id,
-              "error" as PartStatus,
-              `Error: ${partError.message}`,
-              { error: partError.message }
-            );
           }
-        }
 
-        // Check if all parts are done or have errored
-        const finalArrangementState = arrangements.find(
-          (a) => a.id === arrangement.id
-        );
-        const allPartsAttempted = finalArrangementState?.processedParts.every(
-          (p) => p.status === "done" || p.status === "error"
-        );
-
-        if (allPartsAttempted) {
-          const anyPartErrors = finalArrangementState?.processedParts.some(
-            (p) => p.status === "error"
-          );
-          if (anyPartErrors) {
-            updateArrangement(arrangement.id, {
-              status: "all_parts_processed" as ArrangementStatus, // Indicates completion but with potential errors
-              statusMessage: "All parts processed. Some parts had errors.",
-            });
-          } else {
+          if (allIndividualPartsProcessedSuccessfully) {
             updateArrangement(arrangement.id, {
               status: "done" as ArrangementStatus,
-              statusMessage: "Arrangement processed successfully.",
+              statusMessage: "All parts processed and uploaded successfully.",
+            });
+          } else if (anyIndividualPartFailed) {
+            updateArrangement(arrangement.id, {
+              status: "all_parts_processed" as ArrangementStatus,
+              statusMessage:
+                "Finished processing. Some parts encountered errors.",
             });
           }
         }
       } catch (error: any) {
-        console.error("Arrangement processing error:", error);
+        console.error(
+          `Error processing arrangement ${arrangement.name}:`,
+          error
+        );
         updateArrangement(arrangement.id, {
           status: "error" as ArrangementStatus,
-          statusMessage: `Error: ${error.message}`,
+          statusMessage: `Failed to process arrangement: ${error.message}`,
           error: error.message,
         });
       } finally {
