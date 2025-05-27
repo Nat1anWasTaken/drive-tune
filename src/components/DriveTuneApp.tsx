@@ -2,8 +2,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { GapiLoaded, TokenClient, TokenResponse, OverridableTokenClientConfig } from 'google-accounts';
-// gapi will be available globally after script load, types provided by @types/gapi
+import type { TokenClient, TokenResponse } from 'google-accounts';
+// gapi types are available via @types/gapi, google.accounts types via @types/google.accounts
 import type { Arrangement, ProcessedPart, ExtractedMusicSheetMetadata, ArrangementStatus, PartStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrangementListItem } from "@/components/ArrangementListItem";
 import { extractMusicSheetMetadata } from "@/ai/flows/extract-music-sheet-metadata";
 import { generateMusicSheetFilename } from "@/ai/flows/generate-music-sheet-filename";
-import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directory"; // Still used for conceptual path
+import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directory";
 import { UploadCloud, CheckCircle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2, PlusCircle, Music2, Merge, AlertTriangle } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 
@@ -25,6 +25,18 @@ const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let arrangementIdCounter = 0;
 
+// Helper to convert ArrayBuffer to Base64
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+
 export default function DriveTuneApp() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [tokenClient, setTokenClient] = useState<TokenClient | null>(null);
@@ -32,8 +44,8 @@ export default function DriveTuneApp() {
   const [gisReady, setGisReady] = useState(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
-  const [rootFolderDisplayId, setRootFolderDisplayId] = useState<string | null>(null); // Name of the root folder
-  const [rootFolderDriveId, setRootFolderDriveId] = useState<string | null>(null); // Actual Drive ID
+  const [rootFolderDisplayId, setRootFolderDisplayId] = useState<string | null>(null); 
+  const [rootFolderDriveId, setRootFolderDriveId] = useState<string | null>(null); 
   const [isSelectingFolder, setIsSelectingFolder] = useState(false);
   const [tempRootFolderName, setTempRootFolderName] = useState("My DriveTune Sheets");
   
@@ -44,15 +56,22 @@ export default function DriveTuneApp() {
   
   const isDriveConnected = !!accessToken && gapiReady && gisReady;
 
-  // Load GAPI and GIS scripts
   useEffect(() => {
     const scriptGapi = document.createElement('script');
     scriptGapi.src = 'https://apis.google.com/js/api.js';
     scriptGapi.async = true;
     scriptGapi.defer = true;
     scriptGapi.onload = () => {
-        // gapi is loaded directly onto the window object
-        (window as any).gapi.load('client', () => setGapiReady(true));
+        (window as any).gapi.load('client', () => {
+          setGapiReady(true);
+          if (GOOGLE_API_KEY) {
+            (window as any).gapi.client.init({ apiKey: GOOGLE_API_KEY, discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })
+              .catch((error: any) => {
+                console.error("Error initializing GAPI client:", error);
+                toast({ variant: "destructive", title: "GAPI Init Error", description: "Could not initialize Google API client." });
+              });
+          }
+        });
     };
     document.body.appendChild(scriptGapi);
 
@@ -67,9 +86,8 @@ export default function DriveTuneApp() {
       document.body.removeChild(scriptGapi);
       document.body.removeChild(scriptGis);
     };
-  }, []);
+  }, [toast]);
 
-  // Initialize GIS Token Client when GIS is ready
   useEffect(() => {
     if (gisReady && GOOGLE_CLIENT_ID && (window as any).google?.accounts?.oauth2) {
       const client = (window as any).google.accounts.oauth2.initTokenClient({
@@ -78,7 +96,8 @@ export default function DriveTuneApp() {
         callback: (tokenResponse: TokenResponse) => {
           if (tokenResponse && tokenResponse.access_token) {
             setAccessToken(tokenResponse.access_token);
-             if ((window as any).gapi && (window as any).gapi.client) {
+             // gapi.client.setToken can be called if gapi client is initialized and used for other things
+            if ((window as any).gapi && (window as any).gapi.client && (window as any).gapi.client.getToken() === null) {
                 (window as any).gapi.client.setToken({ access_token: tokenResponse.access_token });
             }
             toast({ title: "Google Drive Connected", description: "Access token received." });
@@ -95,27 +114,10 @@ export default function DriveTuneApp() {
     }
   }, [gisReady, toast]);
 
-  // Initialize GAPI client when GAPI is ready and access token is available
-   useEffect(() => {
-    if (gapiReady && accessToken && GOOGLE_API_KEY && (window as any).gapi?.client) {
-      (window as any).gapi.client.init({ apiKey: GOOGLE_API_KEY, discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })
-        .then(() => {
-          // GAPI client is initialized.
-        })
-        .catch((error: any) => {
-          console.error("Error initializing GAPI client:", error);
-          toast({ variant: "destructive", title: "GAPI Init Error", description: "Could not initialize Google API client." });
-        });
-    }
-    if (gapiReady && !GOOGLE_API_KEY && !accessToken){
-       toast({ variant: "destructive", title: "Configuration Error", description: "Google API Key is missing." });
-    }
-  }, [gapiReady, accessToken, toast]);
-
 
   const handleConnectDrive = () => {
     if (!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY) {
-        toast({ variant: "destructive", title: "Configuration Missing", description: "API Key or Client ID is not set." });
+        toast({ variant: "destructive", title: "Configuration Missing", description: "Client ID or API Key is not set for client." });
         return;
     }
     if (tokenClient) {
@@ -126,34 +128,35 @@ export default function DriveTuneApp() {
     }
   };
   
-  const findOrCreateFolder = useCallback(async (folderName: string, parentFolderId: string | 'root' = 'root'): Promise<string | null> => {
-    if (!isDriveConnected || !(window as any).gapi?.client?.drive) {
-      toast({ variant: "destructive", title: "Not Connected", description: "Connect to Google Drive first, or GAPI client not ready."});
+  const findOrCreateFolderAPI = useCallback(async (folderName: string, parentFolderId: string | 'root' = 'root'): Promise<string | null> => {
+    if (!accessToken) {
+      toast({ variant: "destructive", title: "Not Connected", description: "Connect to Google Drive first." });
       return null;
     }
     try {
-      // Check if folder exists
-      const q = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false and '${parentFolderId === 'root' ? 'root' : parentFolderId}' in parents`;
-      const response = await (window as any).gapi.client.drive.files.list({ q });
-      
-      if (response.result.files && response.result.files.length > 0) {
-        return response.result.files[0].id!;
-      } else {
-        // Create folder
-        const fileMetadata = {
-          name: folderName,
-          mimeType: 'application/vnd.google-apps.folder',
-          ...(parentFolderId !== 'root' && { parents: [parentFolderId] }),
-        };
-        const createResponse = await (window as any).gapi.client.drive.files.create({ resource: fileMetadata, fields: 'id' });
-        return createResponse.result.id!;
+      const response = await fetch('/api/drive-handler', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: 'findOrCreateFolder',
+          folderName,
+          parentFolderId,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || `Failed to find or create folder "${folderName}"`);
       }
+      return result.driveId;
     } catch (error: any) {
-      console.error('Error finding or creating folder:', error);
-      toast({ variant: "destructive", title: "Drive Error", description: `Could not find or create folder "${folderName}": ${error.message || error.result?.error?.message}` });
+      console.error('Error finding or creating folder via API:', error);
+      toast({ variant: "destructive", title: "Drive Error (API)", description: `Could not find or create folder "${folderName}": ${error.message}` });
       return null;
     }
-  }, [isDriveConnected, toast]);
+  }, [accessToken, toast]);
 
 
   const handleSelectRootFolder = async () => {
@@ -166,7 +169,7 @@ export default function DriveTuneApp() {
       return;
     }
     setIsSelectingFolder(true);
-    const driveId = await findOrCreateFolder(tempRootFolderName.trim());
+    const driveId = await findOrCreateFolderAPI(tempRootFolderName.trim());
     if (driveId) {
       setRootFolderDriveId(driveId);
       setRootFolderDisplayId(tempRootFolderName.trim());
@@ -229,7 +232,7 @@ export default function DriveTuneApp() {
     });
   };
 
-  async function mergePdfs(files: File[]): Promise<File> { // Returns File object
+  async function mergePdfs(files: File[]): Promise<File> { 
     const mergedPdfDoc = await PDFDocument.create();
     for (const file of files) {
       const arrayBuffer = await file.arrayBuffer();
@@ -251,7 +254,6 @@ export default function DriveTuneApp() {
   async function splitPdfPart(originalPdfDoc: PDFDocument, startPage: number, endPage: number): Promise<Uint8Array> {
     const newPdfDoc = await PDFDocument.create();
     const pageIndices = [];
-    // PDF pages are 0-indexed in pdf-lib, user input is 1-indexed
     for (let i = startPage - 1; i < endPage; i++) {
         if (i < originalPdfDoc.getPageCount()) {
             pageIndices.push(i);
@@ -265,32 +267,36 @@ export default function DriveTuneApp() {
     return newPdfDoc.save();
   }
 
-  async function uploadFileToDrive(fileContent: Uint8Array, fileName: string, parentFolderId: string): Promise<string | null> {
-    if (!(window as any).gapi?.client?.request) {
-        toast({ variant: "destructive", title: "GAPI Error", description: "GAPI client not ready for upload." });
-        return null;
+  async function uploadFileToDriveAPI(fileContentBytes: Uint8Array, fileName: string, parentFolderId: string): Promise<string | null> {
+    if (!accessToken) {
+      toast({ variant: "destructive", title: "Not Connected", description: "Authentication token is missing." });
+      return null;
     }
     try {
-        const metadata = {
-            name: fileName,
-            parents: [parentFolderId],
-            mimeType: 'application/pdf',
-        };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-        form.append('file', new Blob([fileContent], { type: 'application/pdf' }));
-
-        const res = await (window as any).gapi.client.request<{id: string}>({ // Type the expected response
-            path: 'https://www.googleapis.com/upload/drive/v3/files',
-            method: 'POST',
-            params: { uploadType: 'multipart' },
-            body: form,
-        });
-        return res.result.id;
+      const fileContentBase64 = arrayBufferToBase64(fileContentBytes.buffer);
+      const response = await fetch('/api/drive-handler', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: 'uploadFile',
+          fileName,
+          fileContentBase64,
+          parentFolderId,
+          mimeType: 'application/pdf',
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || `Failed to upload file "${fileName}"`);
+      }
+      return result.driveFileId;
     } catch (error: any) {
-        console.error('Error uploading file to Drive:', error);
-        toast({ variant: "destructive", title: "Drive Upload Error", description: `Could not upload ${fileName}: ${error.message || error.result?.error?.message}` });
-        return null;
+      console.error('Error uploading file to Drive via API:', error);
+      toast({ variant: "destructive", title: "Drive Upload Error (API)", description: `Could not upload ${fileName}: ${error.message}` });
+      return null;
     }
   }
 
@@ -324,7 +330,7 @@ export default function DriveTuneApp() {
       }
 
       updateArrangement(arrangement.id, { status: 'reading_file', statusMessage: 'Reading file...' });
-      const dataUri = await readFileAsDataURL(fileToProcess); // Keep for metadata extraction
+      const dataUri = await readFileAsDataURL(fileToProcess); 
       const mainPdfBytes = await fileToProcess.arrayBuffer();
       const mainPdfDoc = await PDFDocument.load(mainPdfBytes);
 
@@ -347,9 +353,8 @@ export default function DriveTuneApp() {
         statusMessage: `Metadata extracted. Creating folders in Drive for "${metadata.title}"...`
       });
       
-      // This Genkit flow is now just for conceptual path determination
       const conceptualDirResult = await createMusicSheetDirectory({
-        rootFolderName: rootFolderDisplayId!, // Display name of root
+        rootFolderName: rootFolderDisplayId!, 
         arrangement_type: metadata.arrangement_type,
       });
 
@@ -357,8 +362,7 @@ export default function DriveTuneApp() {
         throw new Error("AI failed to determine conceptual directory structure.");
       }
       
-      // Actual Drive folder creation
-      const arrangementTypeFolderDriveId = await findOrCreateFolder(metadata.arrangement_type, rootFolderDriveId);
+      const arrangementTypeFolderDriveId = await findOrCreateFolderAPI(metadata.arrangement_type, rootFolderDriveId);
       if (!arrangementTypeFolderDriveId) {
          throw new Error(`Failed to create or find folder for arrangement type: ${metadata.arrangement_type}`);
       }
@@ -390,7 +394,7 @@ export default function DriveTuneApp() {
           const generatedFilename = filenameResult.filename;
           updatePartStatus(arrangement.id, part.id, 'uploading_to_drive', `Uploading "${generatedFilename}" to Drive...`, { generatedFilename });
 
-          const driveFileId = await uploadFileToDrive(partPdfBytes, generatedFilename, arrangementTypeFolderDriveId);
+          const driveFileId = await uploadFileToDriveAPI(partPdfBytes, generatedFilename, arrangementTypeFolderDriveId);
           if (!driveFileId) {
             throw new Error(`Failed to upload "${generatedFilename}" to Drive.`);
           }
@@ -421,13 +425,12 @@ export default function DriveTuneApp() {
               } else {
                   toast({ variant: "default", title: "Arrangement Processed", description: `"${currentArrangementName}" processed. Check part statuses.`, duration: 5000 });
               }
-               // Update the specific arrangement in the main arrangements array
                 return prevArrangements.map(a => 
                     a.id === arrangement.id ? { ...a, status: finalStatus, statusMessage: finalMessage } : a
                 );
             }
         }
-        return prevArrangements; // No change if condition not met
+        return prevArrangements; 
       });
 
     } catch (error: any) {
@@ -486,7 +489,7 @@ export default function DriveTuneApp() {
                 </CardHeader>
                 <CardContent>
                     <p className="text-destructive-foreground">
-                        Google API Key or Client ID is not configured. Please set <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_API_KEY</code> and <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in your environment variables.
+                        Client-side Google API Key or Client ID is not configured. Please set <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_API_KEY</code> and <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in your environment variables.
                         Follow the instructions in the <code className="bg-destructive/20 px-1 rounded">.env</code> file.
                     </p>
                 </CardContent>
