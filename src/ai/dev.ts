@@ -1,1 +1,6 @@
-// Flows will be imported for their side effects in this file.
+import { config } from 'dotenv';
+config();
+
+import '@/ai/flows/extract-music-sheet-metadata.ts';
+import '@/ai/flows/generate-music-sheet-filename.ts';
+import '@/ai/flows/create-music-sheet-directory.ts';

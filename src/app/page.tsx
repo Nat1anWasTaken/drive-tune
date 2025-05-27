@@ -1,3 +1,9 @@
+import DriveTuneApp from "@/components/DriveTuneApp";
+
 export default function Home() {
-  return <></>;
+  return (
+    <main>
+      <DriveTuneApp />
+    </main>
+  );
 }
