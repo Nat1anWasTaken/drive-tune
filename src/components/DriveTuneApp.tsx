@@ -803,7 +803,7 @@ export default function DriveTuneApp() {
                 {!GOOGLE_CLIENT_ID && !GOOGLE_PICKER_API_KEY && " and "}
                 {!GOOGLE_PICKER_API_KEY && (
                   <code className="bg-destructive/20 px-1 rounded mx-1">
-                    NEXT_PUBLIC_GOOGLE_API_KEY
+                    NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
                   </code>
                 )}
                 in your environment variables. Follow the instructions in the{" "}
