@@ -82,24 +82,6 @@ export type ExtractMusicSheetMetadataOutput = z.infer<
 export async function extractMusicSheetMetadata(
   input: ExtractMusicSheetMetadataInput
 ): Promise<ExtractMusicSheetMetadataOutput> {
-  // Validate file size (50 MB limit)
-  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB in bytes
-  
-  // Extract the base64 data from the data URI
-  const base64Match = input.musicSheetDataUri.match(/^data:[^;]+;base64,(.+)$/);
-  if (!base64Match) {
-    throw new Error("Invalid data URI format. Expected format: 'data:<mimetype>;base64,<encoded_data>'");
-  }
-  
-  const base64Data = base64Match[1];
-  // Calculate approximate file size from base64 length
-  // Base64 encoding increases size by approximately 4/3
-  const approximateFileSize = (base64Data.length * 3) / 4;
-  
-  if (approximateFileSize > MAX_FILE_SIZE) {
-    throw new Error(`File size exceeds the maximum limit of 50 MB. Approximate file size: ${Math.round(approximateFileSize / (1024 * 1024))} MB`);
-  }
-  
   return extractMusicSheetMetadataFlow(input);
 }
 
