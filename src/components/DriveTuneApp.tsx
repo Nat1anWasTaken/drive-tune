@@ -11,6 +11,7 @@ import { Arrangement } from "@/types"; // Import Arrangement from central types
 // import { Button } from "./ui/button";
 // import { Input } from "./ui/input";
 // import { Progress } from "./ui/progress";
+import { useEffect, useState } from "react"; // Import useEffect and useState
 import { ArrangementListItem } from "./ArrangementListItem"; // Assuming you have this component
 
 // Ensure this is set in your .env.local file
@@ -39,74 +40,135 @@ export default function DriveTuneApp() {
     isDriveConnected,
     isConnecting,
     handleConnectDrive,
-    handleSignOut, // Added
-    // gapiReady, gisReady, pickerApiLoaded, // these are usually internal to the auth/folder hooks
+    handleSignOut,
   } = auth;
 
   // --- Folder Management Hook ---
-  const folderManager = useGoogleDriveFolderManager(auth); // Pass auth state
+  const folderManager = useGoogleDriveFolderManager(auth);
   const {
     rootFolderDisplayId,
     rootFolderDriveId,
     isSettingRootFolder,
     tempRootFolderName,
     setTempRootFolderName,
-    findOrCreateFolderAPI, // This is also used by arrangement manager
+    findOrCreateFolderAPI,
     handleSetRootFolderByName,
     handleSelectExistingFolder,
+    listSubFolders, // Make sure this is available from folderManager
   } = folderManager;
 
   // --- Arrangement Management Hook ---
-  const arrangementManager = useArrangementManager(auth); // Pass auth state
+  const arrangementManager = useArrangementManager(auth);
   const {
     arrangements,
     isProcessingGlobal,
     addNewArrangement,
-    // updateArrangement, // Used internally or if specific UI needs it
-    // updatePartStatus, // Used internally
     handleFileChangeForArrangement,
-    processArrangement, // The main processing function
-    handleProcessAllReadyArrangements,
+    processArrangement, // Destructured from arrangementManager
+    handleProcessAllReadyArrangements, // Destructured from arrangementManager
     clearArrangements,
-    // uploadFileToDriveAPI, // Usually internal to the hook
-    updateArrangementName, // Added this function from the hook
+    updateArrangementName,
   } = arrangementManager;
 
-  // useEffect for loading Google APIs is now inside useGoogleDriveAuth
-  // useEffect for initializing token client is now inside useGoogleDriveAuth
+  // State for storing available arrangement types (subfolders of the root)
+  const [arrangementTypes, setArrangementTypes] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [isLoadingArrangementTypes, setIsLoadingArrangementTypes] =
+    useState(false);
 
-  // handleConnectDrive is from useGoogleDriveAuth
-
-  // findOrCreateFolderAPI is from useGoogleDriveFolderManager
-  // handleSetRootFolderByName is from useGoogleDriveFolderManager
-  // handleSelectExistingFolder is from useGoogleDriveFolderManager
-
-  // addNewArrangement, updateArrangement, updatePartStatus are from useArrangementManager
-  // handleFileChangeForArrangement is from useArrangementManager
-
-  // PDF processing functions (readFileAsDataURL, mergePdfs, splitPdfPart) are now inside useArrangementManager
-  // uploadFileToDriveAPI is now inside useArrangementManager or called by it
-
-  // processArrangement logic is now primarily within useArrangementManager's processArrangement
-  // It will need rootFolderDriveId and findOrCreateFolderAPI from folderManager,
-  // and extractMusicSheetMetadata (AI function) passed to it.
+  // useEffects for loading APIs are typically within their respective hooks
+  useEffect(() => {
+    if (rootFolderDriveId && listSubFolders) {
+      setIsLoadingArrangementTypes(true);
+      listSubFolders(rootFolderDriveId)
+        .then((subFolders) => {
+          setArrangementTypes(subFolders);
+        })
+        .catch((error) => {
+          console.error("Error fetching arrangement types:", error);
+          toast({
+            title: "Error Fetching Types",
+            description:
+              "Could not load arrangement types from the root folder.",
+            variant: "destructive",
+          });
+          setArrangementTypes([]); // Clear types on error
+        })
+        .finally(() => {
+          setIsLoadingArrangementTypes(false);
+        });
+    } else {
+      setArrangementTypes([]); // Clear if no root folder
+    }
+  }, [rootFolderDriveId, listSubFolders, toast]);
 
   const handleProcessArrangementWrapper = async (arrangement: Arrangement) => {
-    // Wrapper to pass necessary dependencies from other hooks/context
+    if (!rootFolderDriveId) {
+      toast({
+        title: "Error",
+        description: "Root folder not selected.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Define getExistingArrangementTypes for this specific call
+    const getExistingArrangementTypes = async (): Promise<
+      { id: string; name: string }[]
+    > => {
+      if (!rootFolderDriveId) {
+        // Should be redundant due to the check above
+        toast({
+          title: "Error",
+          description: "Root folder ID missing for fetching types.",
+          variant: "destructive",
+        });
+        return [];
+      }
+      return listSubFolders(rootFolderDriveId);
+    };
+
     await processArrangement(
+      // Calling the hook's processArrangement
       arrangement,
       rootFolderDriveId,
-      findOrCreateFolderAPI, // from folderManager
-      extractMusicSheetMetadata // from AI import
+      findOrCreateFolderAPI,
+      extractMusicSheetMetadata, // Imported AI flow
+      getExistingArrangementTypes // Pass the function as the 5th argument
     );
   };
 
   const handleProcessAllReadyArrangementsWrapper = async () => {
-    // Wrapper to pass necessary dependencies
+    if (!rootFolderDriveId) {
+      toast({
+        title: "Error",
+        description: "Root folder not selected.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Define getExistingArrangementTypes for this specific call
+    const getExistingArrangementTypes = async (): Promise<
+      { id: string; name: string }[]
+    > => {
+      if (!rootFolderDriveId) {
+        // Should be redundant
+        toast({
+          title: "Error",
+          description: "Root folder ID missing for fetching types.",
+          variant: "destructive",
+        });
+        return [];
+      }
+      return listSubFolders(rootFolderDriveId);
+    };
+
     await handleProcessAllReadyArrangements(
+      // Calling the hook's function
       rootFolderDriveId,
-      findOrCreateFolderAPI, // from folderManager
-      extractMusicSheetMetadata // from AI import
+      findOrCreateFolderAPI,
+      extractMusicSheetMetadata, // Imported AI flow
+      getExistingArrangementTypes // Pass the function as the 4th argument
     );
   };
 
@@ -189,6 +251,33 @@ export default function DriveTuneApp() {
               No root folder selected. Processed arrangements will be saved
               here.
             </p>
+          )}
+
+          {/* Display Arrangement Types */}
+          {rootFolderDriveId && (
+            <div className="mt-4 mb-4">
+              <h3 className="text-lg font-semibold mb-2 text-card-foreground">
+                Available Arrangement Types (Subfolders):
+              </h3>
+              {isLoadingArrangementTypes ? (
+                <p className="text-muted-foreground">Loading types...</p>
+              ) : arrangementTypes.length > 0 ? (
+                <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+                  {arrangementTypes.map((type) => (
+                    <li key={type.id}>
+                      {type.name}{" "}
+                      <span className="text-xs">(ID: {type.id})</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No subfolders found in the root folder to use as arrangement
+                  types. Create subfolders in your selected root folder on
+                  Google Drive.
+                </p>
+              )}
+            </div>
           )}
 
           <div className="space-y-4">

@@ -26,6 +26,9 @@ export interface GoogleDriveFolderManager {
   ) => Promise<string | null>;
   handleSetRootFolderByName: () => Promise<void>;
   handleSelectExistingFolder: () => void;
+  listSubFolders: (
+    parentFolderId?: string
+  ) => Promise<{ id: string; name: string }[]>; // Added
 }
 
 export function useGoogleDriveFolderManager(
@@ -129,6 +132,54 @@ export function useGoogleDriveFolderManager(
     [accessToken, toast]
   );
 
+  const listSubFolders = useCallback(
+    async (
+      parentFolderId?: string
+    ): Promise<{ id: string; name: string }[]> => {
+      const effectiveParentFolderId =
+        parentFolderId || rootFolderDriveId || "root";
+      if (!accessToken) {
+        toast({
+          variant: "destructive",
+          title: "Not Connected",
+          description: "Connect to Google Drive first.",
+        });
+        return [];
+      }
+      try {
+        const response = await fetch("/api/drive-handler", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            action: "listSubFolders",
+            parentFolderId: effectiveParentFolderId,
+          }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(
+            errorData.error ||
+              `Failed to list subfolders: ${response.statusText}`
+          );
+        }
+        const data = await response.json();
+        return data.subFolders || []; // Changed from data.folders to data.subFolders
+      } catch (error: any) {
+        console.error("Error listing subfolders:", error);
+        toast({
+          variant: "destructive",
+          title: "Error Listing Subfolders",
+          description: error.message || "Could not retrieve subfolder list.",
+        });
+        return [];
+      }
+    },
+    [accessToken, rootFolderDriveId, toast]
+  );
+
   const handleSetRootFolderByName = async () => {
     if (!tempRootFolderName.trim()) {
       toast({
@@ -217,5 +268,6 @@ export function useGoogleDriveFolderManager(
     findOrCreateFolderAPI,
     handleSetRootFolderByName,
     handleSelectExistingFolder,
+    listSubFolders, // Added
   };
 }

@@ -53,7 +53,9 @@ export interface ArrangementManager {
     ) => Promise<string | null>,
     extractMusicSheetMetadata: (data: {
       musicSheetDataUri: string;
-    }) => Promise<ExtractedMusicSheetMetadata>
+      existingArrangementTypes: string[]; // Changed from { id: string; name: string }[] to string[]
+    }) => Promise<ExtractedMusicSheetMetadata>,
+    getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]> // Added
   ) => Promise<void>;
   handleProcessAllReadyArrangements: (
     rootFolderDriveId: string | null,
@@ -62,8 +64,11 @@ export interface ArrangementManager {
       parentFolderId?: string | "root"
     ) => Promise<string | null>,
     extractMusicSheetMetadata: (data: {
+      // Ensure this is part of the signature
       musicSheetDataUri: string;
-    }) => Promise<ExtractedMusicSheetMetadata>
+      existingArrangementTypes: string[]; // Changed from { id: string; name: string }[] to string[]
+    }) => Promise<ExtractedMusicSheetMetadata>,
+    getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]> // Added
   ) => Promise<void>;
   clearArrangements: () => void;
   uploadFileToDriveAPI: (
@@ -313,7 +318,9 @@ export function useArrangementManager(
       ) => Promise<string | null>,
       extractMusicSheetMetadata: (data: {
         musicSheetDataUri: string;
-      }) => Promise<ExtractedMusicSheetMetadata>
+        existingArrangementTypes: string[];
+      }) => Promise<ExtractedMusicSheetMetadata>,
+      getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]>
     ) => {
       if (!arrangement.files || arrangement.files.length === 0) {
         updateArrangement(arrangement.id, {
@@ -349,104 +356,136 @@ export function useArrangementManager(
         // 3. Extract Metadata
         updateArrangement(arrangement.id, {
           status: "extracting_metadata" as ArrangementStatus,
-          statusMessage: "Extracting metadata from PDF...",
-        });
-        const metadata = await extractMusicSheetMetadata({
-          musicSheetDataUri: dataUri,
+          statusMessage: "AI analyzing sheet music and selecting type...",
         });
 
-        // Determine the definitive arrangement name
-        const newArrangementName =
-          metadata.title && metadata.title.trim() !== ""
-            ? metadata.title
-            : arrangement.name;
+        const existingArrangementTypesObjects =
+          await getExistingArrangementTypes();
+        const existingArrangementTypeNames =
+          existingArrangementTypesObjects.map((type) => type.name);
 
-        // Update arrangement state with the new name and metadata
-        // This ensures the UI reflects the new name if it changed
-        updateArrangement(arrangement.id, {
-          name: newArrangementName,
-          extractedMetadata: metadata,
-        });
+        let metadata: ExtractedMusicSheetMetadata;
+        try {
+          metadata = await extractMusicSheetMetadata({
+            musicSheetDataUri: dataUri,
+            existingArrangementTypes: existingArrangementTypeNames, // Pass only names
+          });
+          updateArrangement(arrangement.id, { extractedMetadata: metadata });
+        } catch (metadataError) {
+          console.error("Metadata extraction error:", metadataError);
+          toast({
+            variant: "destructive",
+            title: "Metadata Extraction Failed",
+            description: "AI could not extract metadata from the PDF.",
+          });
+          updateArrangement(arrangement.id, {
+            status: "error" as ArrangementStatus,
+            statusMessage: "Metadata extraction failed.",
+            error: "Metadata extraction failed.",
+          });
+          setIsProcessingGlobal(false);
+          return;
+        }
 
-        // Initialize ProcessedParts from metadata
+        // Validate AI's choice of arrangement_type against existing types
+        const chosenTypeObject = existingArrangementTypesObjects.find(
+          (type) => type.name === metadata.arrangement_type
+        );
+
+        if (!chosenTypeObject) {
+          toast({
+            title: "AI Selection Error",
+            description: `The AI selected an invalid or non-existent arrangement type: ('${
+              metadata.arrangement_type
+            }'). It must match one of the existing type folders: ${existingArrangementTypesObjects
+              .map((t) => t.name)
+              .join(", ")}.`,
+            variant: "destructive",
+          });
+          updateArrangement(arrangement.id, {
+            status: "error",
+            statusMessage: `AI selected an invalid type: '${metadata.arrangement_type}'.`,
+          });
+          setIsProcessingGlobal(false); // Ensure global processing flag is reset
+          return;
+        }
+
+        const chosenArrangementTypeId = chosenTypeObject.id;
+        const chosenArrangementTypeName = chosenTypeObject.name;
+
+        // Create initial ProcessedPart objects from metadata.parts
+        // These will have IDs that can be used by updatePartStatus later.
         const initialProcessedParts: ProcessedPart[] = metadata.parts.map(
-          (partInfo: PartInformation, index: number): ProcessedPart => ({
-            id: `${arrangement.id}-${partInfo.label.replace(
-              /\s+/g,
-              "_"
-            )}-${index}`,
+          (p: PartInformation, index: number): ProcessedPart => ({
+            id: `${arrangement.id}-${p.label.replace(/\s+/g, "_")}-${index}`,
             parentId: arrangement.id,
-            ...partInfo, // Spreads label, is_full_score, start_page, end_page, primaryInstrumentation
+            ...p, // Spreads label, is_full_score, start_page, end_page, primaryInstrumentation
             status: "pending" as PartStatus,
-            statusMessage: "Pending processing.",
+            statusMessage: "Waiting for PDF split",
             // generatedFilename, driveFileId, error will be set later
           })
         );
+
         updateArrangement(arrangement.id, {
-          processedParts: initialProcessedParts,
-          statusMessage: "Metadata extracted. Preparing to process parts.",
+          name: metadata.title || arrangement.name,
+          extractedMetadata: metadata,
+          targetDirectoryDriveId: chosenArrangementTypeId, // This is the ID of the TYPE folder
+          processedParts: initialProcessedParts, // Store the parts with IDs
+          status: "creating_drive_folder_structure",
+          statusMessage: `Type: ${chosenArrangementTypeName}. Preparing to create folder for '${
+            metadata.title || arrangement.name
+          }'...`,
         });
 
-        // 4. Create base folder for the arrangement type (e.g., "Concert Band")
-        updateArrangement(arrangement.id, {
-          status: "creating_drive_folder_structure" as ArrangementStatus,
-          statusMessage: `Creating base folder for type: ${metadata.arrangement_type}...`,
-        });
-        const arrangementTypeBaseFolderId = await findOrCreateFolderAPI(
-          metadata.arrangement_type,
-          rootFolderDriveId || "root"
-        );
-        if (!arrangementTypeBaseFolderId) {
-          throw new Error(
-            `Failed to create or find base folder for type: ${metadata.arrangement_type}`
-          );
-        }
-
-        // 5. Create a specific folder for this arrangement (e.g., "Bolero - Ravel")
+        const arrangementSpecificFolderName =
+          metadata.title || arrangement.name;
         updateArrangement(arrangement.id, {
           status: "creating_arrangement_folder" as ArrangementStatus,
-          statusMessage: `Creating folder for arrangement: ${newArrangementName}...`, // Use newArrangementName
+          statusMessage: `Creating folder for arrangement: ${arrangementSpecificFolderName}...`,
         });
-        const arrangementFolderDriveId = await findOrCreateFolderAPI(
-          newArrangementName, // Use newArrangementName for folder creation
-          arrangementTypeBaseFolderId
+
+        const arrangementSpecificFolderId = await findOrCreateFolderAPI(
+          arrangementSpecificFolderName,
+          chosenArrangementTypeId // Parent is the CHOSEN TYPE FOLDER
         );
-        if (!arrangementFolderDriveId) {
+
+        if (!arrangementSpecificFolderId) {
           throw new Error(
-            `Failed to create or find folder for arrangement: ${newArrangementName}` // Use newArrangementName
+            `Failed to create or find folder for arrangement '${arrangementSpecificFolderName}' in type '${chosenArrangementTypeName}'.`
           );
         }
-        updateArrangement(arrangement.id, {
-          targetDirectoryDriveId: arrangementFolderDriveId,
-        });
+        // If you need to store this ID on the arrangement object itself, add a field to the Arrangement type
+        // and update it here, e.g.:
+        // updateArrangement(arrangement.id, { arrangementInstanceFolderId: arrangementSpecificFolderId });
 
-        // 6. Process each part
         updateArrangement(arrangement.id, {
           status: "processing_parts" as ArrangementStatus,
-          statusMessage: `Processing ${metadata.parts.length} parts...`,
+          statusMessage: `Processing ${initialProcessedParts.length} parts...`,
         });
 
-        const mergedPdfArrayBuffer = await mergedFile.arrayBuffer();
+        const mergedPdfArrayBuffer = await (arrangement.dataUri
+          ? fetch(arrangement.dataUri).then((res) => res.arrayBuffer())
+          : mergedFile.arrayBuffer());
         const pdfDocToSplit = await PDFDocument.load(mergedPdfArrayBuffer);
 
         let allIndividualPartsProcessedSuccessfully = true;
         let anyIndividualPartFailed = false;
 
         if (initialProcessedParts.length === 0) {
-          // No parts defined by metadata, consider the arrangement 'done'
           updateArrangement(arrangement.id, {
             status: "done" as ArrangementStatus,
             statusMessage:
               "Metadata extracted, no individual parts to process.",
           });
         } else {
+          // Iterate over initialProcessedParts, which are ProcessedPart objects and have an .id
           for (const part of initialProcessedParts) {
             try {
               updatePartStatus(
                 arrangement.id,
-                part.id,
-                "processing" as PartStatus,
-                `Processing: ${part.label}`
+                part.id, // part.id is now valid as we are iterating over ProcessedPart[]
+                "splitting" as PartStatus, // Changed from "processing" to be more specific
+                `Splitting: ${part.label}`
               );
 
               const partPdfBytes = await splitPdfPart(
@@ -455,15 +494,25 @@ export function useArrangementManager(
                 part.end_page
               );
 
-              const generatedPartFilename = `${newArrangementName} - ${part.label}.pdf`;
+              const generatedPartFilename = `${
+                metadata.title || arrangement.name
+              } - ${part.label}.pdf`;
+              updatePartStatus(
+                arrangement.id,
+                part.id,
+                "uploading_to_drive",
+                `Uploading: ${generatedPartFilename}`,
+                { generatedFilename: generatedPartFilename }
+              );
 
-              if (!arrangementFolderDriveId) {
+              if (!arrangementSpecificFolderId) {
+                // This check should ideally be redundant if the flow guarantees arrangementSpecificFolderId by now
                 updatePartStatus(
                   arrangement.id,
                   part.id,
                   "error" as PartStatus,
-                  `Error: Arrangement folder ID missing for ${part.label}.`,
-                  { error: "Arrangement folder ID missing." }
+                  `Error: Arrangement-specific folder ID missing for ${part.label}.`,
+                  { error: "Arrangement-specific folder ID missing." }
                 );
                 allIndividualPartsProcessedSuccessfully = false;
                 anyIndividualPartFailed = true;
@@ -473,7 +522,7 @@ export function useArrangementManager(
               const partDriveId = await uploadFileToDriveAPI(
                 partPdfBytes,
                 generatedPartFilename,
-                arrangementFolderDriveId
+                arrangementSpecificFolderId // Upload to the arrangement-specific folder
               );
 
               if (partDriveId) {
@@ -484,7 +533,7 @@ export function useArrangementManager(
                   `Uploaded: ${part.label}`,
                   {
                     driveFileId: partDriveId,
-                    generatedFilename: generatedPartFilename,
+                    // generatedFilename is already set above
                   }
                 );
               } else {
@@ -492,7 +541,7 @@ export function useArrangementManager(
                   arrangement.id,
                   part.id,
                   "error" as PartStatus,
-                  `Error: Failed to upload ${part.label}. Check notifications.`,
+                  `Error: Failed to upload ${part.label}. Check Drive API logs.`,
                   { error: `Failed to upload ${part.label}.` }
                 );
                 allIndividualPartsProcessedSuccessfully = false;
@@ -522,7 +571,7 @@ export function useArrangementManager(
             });
           } else if (anyIndividualPartFailed) {
             updateArrangement(arrangement.id, {
-              status: "all_parts_processed" as ArrangementStatus,
+              status: "all_parts_processed" as ArrangementStatus, // A more specific status if some parts failed
               statusMessage:
                 "Finished processing. Some parts encountered errors.",
             });
@@ -547,12 +596,7 @@ export function useArrangementManager(
       updatePartStatus,
       uploadFileToDriveAPI,
       toast,
-      // arrangements, // Removed arrangements from here as its direct use for final state check was problematic
-      // The state will be naturally consistent due to React's rendering cycle.
-      // If specific up-to-date state is needed within processArrangement after an update,
-      // it should be retrieved via `setArrangements(prev => { /* use prev here */ return newState; })`
-      // or by passing the updated object through the promise chain if absolutely necessary.
-      // For now, relying on `newArrangementName` for naming consistency.
+      // readFileAsDataURL and mergePdfs are defined within the hook or should be stable dependencies
     ]
   );
 
@@ -564,26 +608,33 @@ export function useArrangementManager(
         parentFolderId?: string | "root"
       ) => Promise<string | null>,
       extractMusicSheetMetadata: (data: {
+        // Ensure signature matches
         musicSheetDataUri: string;
-      }) => Promise<ExtractedMusicSheetMetadata>
+        existingArrangementTypes: string[];
+      }) => Promise<ExtractedMusicSheetMetadata>,
+      getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]> // Pass this down
     ) => {
       const readyArrangements = arrangements.filter(
-        (arr) => arr.status === "ready_to_process"
+        (arr) =>
+          arr.status === "ready_to_process" && arr.files && arr.files.length > 0
       );
       if (readyArrangements.length === 0) {
         toast({
-          title: "No Arrangements to Process",
-          description: "There are no arrangements ready for processing.",
+          title: "Nothing to process",
+          description: "No arrangements are ready for processing.",
+          variant: "default",
         });
         return;
       }
       setIsProcessingGlobal(true);
       for (const arr of readyArrangements) {
+        // Pass all required arguments, including getExistingArrangementTypes
         await processArrangement(
           arr,
           rootFolderDriveId,
           findOrCreateFolderAPI,
-          extractMusicSheetMetadata
+          extractMusicSheetMetadata,
+          getExistingArrangementTypes // Make sure this is passed
         );
       }
       setIsProcessingGlobal(false);
@@ -592,7 +643,7 @@ export function useArrangementManager(
         description: `Finished processing ${readyArrangements.length} arrangement(s).`,
       });
     },
-    [arrangements, processArrangement, toast] // processArrangement is now a dependency
+    [arrangements, processArrangement, toast] // processArrangement is a dependency
   );
 
   const clearArrangements = () => {
@@ -604,7 +655,7 @@ export function useArrangementManager(
     arrangements,
     isProcessingGlobal,
     addNewArrangement,
-    updateArrangementName, // Added
+    updateArrangementName,
     updateArrangement,
     updatePartStatus,
     handleFileChangeForArrangement,
