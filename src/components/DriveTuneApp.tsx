@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -20,9 +21,9 @@ const MOCK_FOLDER_SELECTED_DELAY = 500;
 export default function DriveTuneApp() {
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [rootFolderId, setRootFolderId] = useState<string | null>(null);
+  const [rootFolderId, setRootFolderId] = useState<string | null>(null); // This now stores the root folder *name*
   const [isSelectingFolder, setIsSelectingFolder] = useState(false);
-  const [tempFolderId, setTempFolderId] = useState("My Music Sheets Root"); // Default mock folder ID
+  const [tempFolderId, setTempFolderId] = useState("My Music Sheets Root"); // Default mock folder name
   const [filesToProcess, setFilesToProcess] = useState<ProcessedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -40,7 +41,7 @@ export default function DriveTuneApp() {
 
   const handleSelectRootFolder = () => {
     if (!tempFolderId.trim()) {
-      toast({ variant: "destructive", title: "Error", description: "Please enter a root folder name/ID." });
+      toast({ variant: "destructive", title: "Error", description: "Please enter a root folder name." });
       return;
     }
     setIsSelectingFolder(true);
@@ -85,28 +86,31 @@ export default function DriveTuneApp() {
       updateFileStatus(item.id, 'extracting', "Extracting metadata with AI...", { dataUri });
 
       const metadata = await extractMusicSheetMetadata({ musicSheetDataUri: dataUri });
-      if (!metadata || !metadata.compositionName) {
-        throw new Error("AI could not extract metadata or composition name is missing.");
+      if (!metadata || !metadata.compositionName || !metadata.fileSubject || !metadata.instrumentations) {
+        throw new Error("AI could not extract all required metadata (composition name, file subject, or instrumentations missing).");
       }
       updateFileStatus(item.id, 'naming', "Generating filename with AI...", { metadata });
       
-      const filenameResult = await generateMusicSheetFilename(metadata);
+      const filenameResult = await generateMusicSheetFilename({
+        fileSubject: metadata.fileSubject,
+        instrumentations: metadata.instrumentations,
+      });
       if (!filenameResult || !filenameResult.filename) {
         throw new Error("AI could not generate a filename.");
       }
       const generatedFilename = filenameResult.filename;
-      updateFileStatus(item.id, 'creating_dir', "Creating directory structure with AI...", { generatedFilename });
+      updateFileStatus(item.id, 'creating_dir', "Determining directory structure with AI...", { generatedFilename });
 
       const composerArrangers = metadata.arranger ? `${metadata.composer} (Arr. ${metadata.arranger})` : metadata.composer;
       const directoryResult = await createMusicSheetDirectory({
-        rootFolderId: rootFolderId!, // Asserting rootFolderId is not null as this step is guarded
+        rootFolderName: rootFolderId!, 
         compositionType: metadata.compositionType,
         compositionName: metadata.compositionName,
         composerArrangers: composerArrangers,
       });
 
-      if (!directoryResult.success) {
-        throw new Error("AI failed to create directory structure.");
+      if (!directoryResult.success || !directoryResult.directoryPath) {
+        throw new Error("AI failed to determine directory structure.");
       }
       const targetDirectoryPath = directoryResult.directoryPath;
       updateFileStatus(item.id, 'organizing', "Finalizing organization (Simulated)...", { targetDirectoryPath });
@@ -185,11 +189,11 @@ export default function DriveTuneApp() {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><FolderOpenDot className="mr-2 h-6 w-6 text-primary" />Step 2: Select Root Folder</CardTitle>
-              <CardDescription>Choose or create a main folder in your Drive for DriveTune.</CardDescription>
+              <CardDescription>Choose or create a main folder name in your Drive for DriveTune.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <Label htmlFor="rootFolder">Root Folder Name/ID (Simulated)</Label>
+                <Label htmlFor="rootFolder">Root Folder Name (Simulated)</Label>
                 <Input
                   id="rootFolder"
                   value={tempFolderId}

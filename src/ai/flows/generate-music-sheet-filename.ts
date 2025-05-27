@@ -13,10 +13,8 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const MusicSheetMetadataInputSchema = z.object({
-  compositionType: z.string().describe('The type of composition or arrangement (e.g., percussion ensemble, saxophone ensemble).'),
-  compositionName: z.string().describe('The name of the composition.'),
-  composer: z.string().describe('The composer of the music sheet.'),
-  arranger: z.string().optional().describe('The arranger of the music sheet, if applicable.'),
+  fileSubject: z.string().describe('The specific part or content of the file (e.g., "Full Score", "Violin I").'),
+  instrumentations: z.string().describe('A comma-separated list of instruments or voice parts (e.g., "Flute, Oboe", "Piano"). This will be used to form part of the filename.'),
 });
 export type MusicSheetMetadataInput = z.infer<typeof MusicSheetMetadataInputSchema>;
 
@@ -33,21 +31,26 @@ const prompt = ai.definePrompt({
   name: 'generateMusicSheetFilenamePrompt',
   input: {schema: MusicSheetMetadataInputSchema},
   output: {schema: MusicSheetFilenameOutputSchema},
-  prompt: `You are a music librarian who is tasked with generating a standardized filename for a music sheet.
+  prompt: `You are a music librarian tasked with generating a standardized filename.
 
-  Here is the metadata for the music sheet:
-  Type of Composition/Arrangement: {{{compositionType}}}
-  Composition Name: {{{compositionName}}}
-  Composer: {{{composer}}}
-  Arranger: {{#if arranger}}{{{arranger}}}{{else}}Arranged by: {{{composer}}}{{/if}}
+  Metadata:
+  - File Subject: {{{fileSubject}}}
+  - Instrumentations (comma-separated): {{{instrumentations}}}
 
-  Generate a filename that follows this format:
-  [Type of Composition or Arrangement] - [Composition Name] - [Composer and Arranger].pdf
+  Generate a filename using this format:
+  [File Subject] - [Instrumentations joined by hyphens].pdf
 
-  If there is no arranger, then the filename will follow this format:
-  [Type of Composition or Arrangement] - [Composition Name] - [Composer].pdf
+  For example, if File Subject is "Violin I" and Instrumentations is "Violin, Viola, Cello", the filename should be:
+  "Violin I - Violin-Viola-Cello.pdf"
+
+  If File Subject is "Adagio" and Instrumentations is "Flute", the filename should be:
+  "Adagio - Flute.pdf"
+
+  If File Subject is "Full Score" and Instrumentations is "Full Score", the filename should be:
+  "Full Score - Full Score.pdf"
 
   Ensure the filename is suitable for use in Google Drive and does not contain any invalid characters.
+  Replace any slashes or other invalid characters in the File Subject or Instrumentations with hyphens before constructing the filename.
   Return ONLY the filename in the output. Do not include any additional text or explanations.
   `,
 });

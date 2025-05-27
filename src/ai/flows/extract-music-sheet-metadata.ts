@@ -25,6 +25,8 @@ const ExtractMusicSheetMetadataOutputSchema = z.object({
   compositionName: z.string().describe('The name of the composition.'),
   composer: z.string().describe('The composer of the music.'),
   arranger: z.string().describe('The arranger(s) of the music, if applicable.'),
+  fileSubject: z.string().describe('The specific part or content of the file, distinct from the overall composition name. Examples: "Full Score", "Violin I", "Piano Accompaniment", "Lead Sheet". This should not be the main title of the composition but rather what this specific file represents within that composition.'),
+  instrumentations: z.string().describe('A comma-separated list of all instruments or voice parts explicitly mentioned or clearly intended for this music sheet file. Examples: "Flute, Oboe, Clarinet", "SATB Choir", "Piano", "Full Score". If it is a full score, list "Full Score".'),
 });
 export type ExtractMusicSheetMetadataOutput = z.infer<typeof ExtractMusicSheetMetadataOutputSchema>;
 
@@ -43,6 +45,8 @@ const extractMusicSheetMetadataPrompt = ai.definePrompt({
   - Composition Name: The name of the composition.
   - Composer: The composer of the music.
   - Arranger: The arranger(s) of the music, if applicable.
+  - File Subject: The specific part or content of the file (e.g., "Full Score", "Violin I", "Piano Accompaniment"). This is what the file itself represents.
+  - Instrumentations: A comma-separated list of instruments or voice parts in this file (e.g., "Flute, Oboe, Clarinet", "SATB Choir", "Piano", "Full Score").
 
   Return the information in JSON format.
 

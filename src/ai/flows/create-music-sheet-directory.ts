@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -12,15 +13,15 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const CreateMusicSheetDirectoryInputSchema = z.object({
-  rootFolderId: z.string().describe('The ID of the root folder in Google Drive.'),
-  compositionType: z.string().describe('The type of composition or arrangement (e.g., percussion ensemble, saxophone ensemble).'),
-  compositionName: z.string().describe('The name of the composition.'),
-  composerArrangers: z.string().describe('The composer(s) and arranger(s) of the music sheet.'),
+  rootFolderName: z.string().describe('The name of the root folder in Google Drive provided by the user (e.g., "My Music Sheets").'),
+  compositionType: z.string().describe('The type of composition or arrangement (e.g., "Percussion Ensemble", "Saxophone Quartet"), which will be the first subfolder name.'),
+  compositionName: z.string().describe('The name of the overall composition (e.g., "Bolero", "The Four Seasons"), which will be part of the second subfolder name.'),
+  composerArrangers: z.string().describe('The composer(s) and/or arranger(s) (e.g., "John Williams", "Mozart (Arr. Liszt)"), which will be part of the second subfolder name, following " by ".'),
 });
 export type CreateMusicSheetDirectoryInput = z.infer<typeof CreateMusicSheetDirectoryInputSchema>;
 
 const CreateMusicSheetDirectoryOutputSchema = z.object({
-  directoryPath: z.string().describe('The full path of the created directory in Google Drive.'),
+  directoryPath: z.string().describe('The full path of the created directory in Google Drive, starting with the rootFolderName.'),
   success: z.boolean().describe('Indicates whether the directory creation was successful.'),
 });
 export type CreateMusicSheetDirectoryOutput = z.infer<typeof CreateMusicSheetDirectoryOutputSchema>;
@@ -33,24 +34,34 @@ const createDirectoryPrompt = ai.definePrompt({
   name: 'createDirectoryPrompt',
   input: {schema: CreateMusicSheetDirectoryInputSchema},
   output: {schema: CreateMusicSheetDirectoryOutputSchema},
-  prompt: `You are a directory management expert.
+  prompt: `You are a directory management expert simulating directory creation.
 
-  Based on the provided information, create a nested directory structure in Google Drive under the specified root folder.
-  The structure should follow this pattern: [Type of Composition/Arrangement] -> [Composition Name] -> [Composer and Arrangers].
+  Based on the provided information, determine the target directory structure.
+  The structure should be:
+  {{{rootFolderName}}}/{{{compositionType}}}/{{{compositionName}}} by {{{composerArrangers}}}
 
   Input Data:
-  - Root Folder ID: {{{rootFolderId}}}
-  - Composition Type: {{{compositionType}}}
+  - Root Folder Name: {{{rootFolderName}}}
+  - Composition Type (Arrangement Type): {{{compositionType}}}
   - Composition Name: {{{compositionName}}}
   - Composer and Arrangers: {{{composerArrangers}}}
 
-  Return the full directory path that was created and a boolean indicating success.
-  Example:
+  Return the full conceptual directory path of the deepest folder where the file would reside and a boolean indicating success.
+  Ensure the path components (compositionType, compositionName, composerArrangers) are sanitized for use as folder names (e.g., remove or replace invalid characters like '/').
+
+  Example for input (rootFolderName: "My Digital Scores", compositionType: "String Quartet", compositionName: "Op. 18 No. 1", composerArrangers: "L. van Beethoven"):
   {
-    "directoryPath": "Music Sheets/Percussion Ensemble/My Composition/Arranger1 & Composer2",
+    "directoryPath": "My Digital Scores/String Quartet/Op. 18 No. 1 by L. van Beethoven",
     "success": true
   }
-  If directory exists return path to existing directory.
+
+  Example for input (rootFolderName: "Band Music", compositionType: "Concert Band", compositionName: "Star Wars Saga", composerArrangers: "John Williams (Arr. Paul Lavender)"):
+  {
+    "directoryPath": "Band Music/Concert Band/Star Wars Saga by John Williams (Arr. Paul Lavender)",
+    "success": true
+  }
+
+  If a directory conceptually already exists, return the path to that existing directory.
   `,
 });
 
@@ -65,4 +76,3 @@ const createMusicSheetDirectoryFlow = ai.defineFlow(
     return output!;
   }
 );
-
