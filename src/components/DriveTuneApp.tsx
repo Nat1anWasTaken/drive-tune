@@ -12,7 +12,7 @@ import { FileListItem } from "@/components/FileListItem";
 import { extractMusicSheetMetadata, type ExtractMusicSheetMetadataOutput } from "@/ai/flows/extract-music-sheet-metadata";
 import { generateMusicSheetFilename } from "@/ai/flows/generate-music-sheet-filename";
 import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directory";
-import { UploadCloud, HardDrive, CheckCircle, AlertTriangle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles } from "lucide-react";
+import { UploadCloud, HardDrive, CheckCircle, AlertTriangle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2 } from "lucide-react";
 
 const MOCK_DRIVE_CONNECTED_DELAY = 1000;
 const MOCK_FOLDER_SELECTED_DELAY = 500;
