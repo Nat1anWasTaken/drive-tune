@@ -6,16 +6,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { PartListItem } from "./FileListItem";
+import { PartListItem } from "./FileListItem"; // FileListItem is now PartListItem
 import { CheckCircle2, XCircle, Loader2, FileUp, AlertTriangle, Sparkles, FileSymlink, Pencil, Hourglass, FolderCog, Merge } from "lucide-react";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 interface ArrangementListItemProps {
   arrangement: Arrangement;
   onFileChange: (arrangementId: string, event: React.ChangeEvent<HTMLInputElement>) => void;
   onProcess: (arrangement: Arrangement) => Promise<void>;
   isProcessingGlobal: boolean;
-  updateArrangementName: (arrangementId: string, newName: string) => void;
+  updateArrangementName: (arrangementId: string, newName: string) => void; // Retain for manual editing if needed, though primary update is via metadata
 }
 
 const getArrangementStatusIcon = (status: ArrangementStatus) => {
@@ -67,16 +67,23 @@ const getArrangementProgressValue = (status: ArrangementStatus, partsProcessed?:
 export function ArrangementListItem({ arrangement, onFileChange, onProcess, isProcessingGlobal, updateArrangementName }: ArrangementListItemProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
+  // Use arrangement.name directly as it will be updated from metadata
   const [editableName, setEditableName] = useState(arrangement.name);
+
+  // Sync editableName when arrangement.name changes externally (e.g., from metadata)
+  useEffect(() => {
+    setEditableName(arrangement.name);
+  }, [arrangement.name]);
   
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setEditableName(e.target.value);
   };
 
   const saveName = () => {
-    if (editableName.trim()) {
+    if (editableName.trim() && editableName.trim() !== arrangement.name) {
       updateArrangementName(arrangement.id, editableName.trim());
     } else {
+      // If name hasn't changed or is empty, revert to arrangement.name from props
       setEditableName(arrangement.name); 
     }
     setIsEditingName(false);
@@ -86,12 +93,15 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
   const totalPartsCount = arrangement.processedParts.length;
   const progressValue = getArrangementProgressValue(arrangement.status, partsProcessedCount, totalPartsCount);
   const canProcess = arrangement.status === 'ready_to_process' && !!arrangement.files && arrangement.files.length > 0 && !isProcessingGlobal;
+  // Disable manual name editing if metadata has been extracted
+  const canEditName = arrangement.status === 'pending_upload' || arrangement.status === 'ready_to_process';
+
 
   return (
     <Card className="shadow-md bg-card/70 border">
       <CardHeader className="p-4">
         <div className="flex items-center justify-between">
-            {isEditingName ? (
+            {isEditingName && canEditName ? (
                  <Input 
                     value={editableName} 
                     onChange={handleNameChange} 
@@ -101,9 +111,13 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
                     autoFocus
                  />
             ) : (
-                <CardTitle className="text-lg flex items-center" onClick={() => setIsEditingName(true)} title="Click to edit name">
+                <CardTitle 
+                    className="text-lg flex items-center" 
+                    onClick={() => canEditName && setIsEditingName(true)} 
+                    title={canEditName ? "Click to edit name" : arrangement.name}
+                >
                     {arrangement.name}
-                    <Pencil className="h-4 w-4 ml-2 text-muted-foreground hover:text-primary cursor-pointer"/>
+                    {canEditName && <Pencil className="h-4 w-4 ml-2 text-muted-foreground hover:text-primary cursor-pointer"/>}
                 </CardTitle>
             )}
 
@@ -131,8 +145,8 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
         )}
         {arrangement.files && arrangement.files.length > 0 && arrangement.status !== 'pending_upload' && (
             <div className="text-xs text-muted-foreground mb-2">
-              <p>File(s):</p>
-              <ul className="list-disc list-inside pl-2">
+              <p>File(s) ({arrangement.files.length}):</p>
+              <ul className="list-disc list-inside pl-2 max-h-20 overflow-y-auto">
                 {arrangement.files.map((file, index) => (
                   <li key={index} className="truncate" title={file.name}>{file.name}</li>
                 ))}
@@ -147,7 +161,14 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
             <h4 className="text-sm font-medium mb-1.5 text-primary-foreground/80">Parts:</h4>
             <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
               {arrangement.processedParts.map(part => (
-                <PartListItem key={part.id} part={part} targetDirectoryPath={arrangement.targetDirectoryPath} />
+                <PartListItem 
+                    key={part.id} 
+                    part={part} 
+                    // Pass the arrangement's name which is now the extracted title
+                    arrangementName={arrangement.name} 
+                    arrangementType={arrangement.extractedMetadata?.arrangement_type}
+                    rootFolderName={arrangement.targetDirectoryPath?.split('/')[0]} // Assuming root is first part
+                />
               ))}
             </div>
           </div>
@@ -168,3 +189,4 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
     </Card>
   );
 }
+

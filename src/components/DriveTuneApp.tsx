@@ -60,7 +60,7 @@ export default function DriveTuneApp() {
     arrangementIdCounter++;
     const newArrangement: Arrangement = {
       id: `arr-${Date.now()}-${arrangementIdCounter}`,
-      name: `Arrangement ${arrangementIdCounter}`,
+      name: `Arrangement ${arrangementIdCounter}`, // This will be updated after metadata extraction
       status: 'pending_upload',
       statusMessage: 'Please upload PDF file(s) for this arrangement.',
       processedParts: [],
@@ -94,7 +94,7 @@ export default function DriveTuneApp() {
         toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload only PDF files." });
       }
       if (pdfFiles.length === 0 && event.target) {
-         if (event.target) event.target.value = ""; // Clear the input if no valid PDFs
+         if (event.target) event.target.value = ""; 
          return;
       }
 
@@ -138,13 +138,14 @@ export default function DriveTuneApp() {
     }
 
     let fileToProcess: File;
+    let currentArrangementName = arrangement.name; // Keep track of name for directory creation
 
     try {
       if (arrangement.files.length > 1) {
         updateArrangement(arrangement.id, { status: 'merging_files', statusMessage: 'Merging PDF files...' });
         try {
             const mergedPdfBlob = await mergePdfs(arrangement.files);
-            fileToProcess = new File([mergedPdfBlob], `merged_${arrangement.name.replace(/\s+/g, '_')}.pdf`, { type: 'application/pdf' });
+            fileToProcess = new File([mergedPdfBlob], `merged_${arrangement.id}.pdf`, { type: 'application/pdf' });
             updateArrangement(arrangement.id, { statusMessage: 'PDFs merged. Reading file...' });
         } catch (mergeError: any) {
             console.error("Error merging PDFs:", mergeError);
@@ -164,6 +165,14 @@ export default function DriveTuneApp() {
         throw new Error("AI did not identify any parts in the music sheet.");
       }
       
+      // Update arrangement name with extracted title
+      currentArrangementName = metadata.title;
+      updateArrangement(arrangement.id, { 
+        name: metadata.title, 
+        extractedMetadata: metadata, 
+        statusMessage: `Metadata extracted for "${metadata.title}". Determining directory...`
+      });
+      
       const initialProcessedParts: ProcessedPart[] = metadata.parts.map((partInfo, index) => ({
         ...partInfo,
         id: `${arrangement.id}-part-${index}-${partInfo.label.replace(/\s+/g, '-')}`,
@@ -171,14 +180,12 @@ export default function DriveTuneApp() {
         status: 'pending',
         statusMessage: 'Waiting for processing',
       }));
-      updateArrangement(arrangement.id, { extractedMetadata: metadata, processedParts: initialProcessedParts, status: 'creating_directory', statusMessage: 'Determining directory structure...' });
+      updateArrangement(arrangement.id, { processedParts: initialProcessedParts, status: 'creating_directory' }); // Status message set above
       
-      const composerArrangers = metadata.composers.join(', ');
       const directoryResult = await createMusicSheetDirectory({
         rootFolderName: rootFolderId!,
-        compositionType: metadata.arrangement_type,
-        compositionName: metadata.title,
-        composerArrangers: composerArrangers,
+        arrangement_type: metadata.arrangement_type,
+        arrangement_name: currentArrangementName, // Use the extracted title
       });
 
       if (!directoryResult.success || !directoryResult.directoryPath) {
@@ -190,13 +197,17 @@ export default function DriveTuneApp() {
       for (const part of initialProcessedParts) {
         try {
           updatePartStatus(arrangement.id, part.id, 'naming', 'Generating filename with AI...');
+          
+          // Derive single instrumentation for filename
+          const instrumentationForFilename = part.instrumentations && part.instrumentations.length > 0 
+                                              ? part.instrumentations[0] 
+                                              : part.label; // Fallback to label if no instrumentations
+
           const filenameResult = await generateMusicSheetFilename({ 
-            partLabel: part.label, 
-            // instrumentations needs to be derived for the filename generation.
-            // Assuming part.label itself is the primary instrumentation for the filename.
-            // If parts have a specific `instrumentations` field, use that.
-            instrumentations: part.instrumentations || [part.label] 
+            fileSubject: part.label, 
+            instrumentation: instrumentationForFilename
           });
+
           if (!filenameResult || !filenameResult.filename) {
             throw new Error("AI could not generate a filename for this part.");
           }
@@ -213,25 +224,29 @@ export default function DriveTuneApp() {
         }
       }
       
-      const finalArrangementState = arrangements.find(a => a.id === arrangement.id); // Re-fetch from state
-      if (finalArrangementState && finalArrangementState.processedParts.every(p => p.status === 'done' || p.status === 'error')) {
+      // Re-fetch arrangement from state to get the latest processedParts
+      const finalArrangementState = arrangements.find(a => a.id === arrangement.id) || arrangement; 
+      const allPartsDoneOrError = finalArrangementState.processedParts.every(p => p.status === 'done' || p.status === 'error');
+
+      if (allPartsDoneOrError) {
         const hasErrors = finalArrangementState.processedParts.some(p => p.status === 'error');
         updateArrangement(arrangement.id, {
           status: hasErrors ? 'all_parts_processed' : 'done', 
-          statusMessage: hasErrors ? 'Arrangement processed with some errors.' : 'Arrangement processed successfully!',
+          statusMessage: hasErrors ? `Arrangement "${currentArrangementName}" processed with some errors.` : `Arrangement "${currentArrangementName}" processed successfully!`,
         });
         if (!hasErrors) {
-            toast({ title: "Arrangement Organized", description: `${arrangement.name} processed successfully.` });
+            toast({ title: "Arrangement Organized", description: `"${currentArrangementName}" processed successfully.` });
         } else {
-            toast({ variant: "default", title: "Arrangement Processed", description: `${arrangement.name} had issues with some parts. Check details.`, duration: 5000 });
+            toast({ variant: "default", title: "Arrangement Processed", description: `"${currentArrangementName}" had issues with some parts. Check details.`, duration: 5000 });
         }
       }
 
+
     } catch (error: any) {
-      console.error("Error processing arrangement:", arrangement.name, error);
+      console.error("Error processing arrangement:", currentArrangementName, error);
       const errorMessage = error.message || "An unknown error occurred during arrangement processing.";
-      updateArrangement(arrangement.id, { status: 'error', statusMessage: `Error: ${errorMessage}`, error: errorMessage });
-      toast({ variant: "destructive", title: `Error processing ${arrangement.name}`, description: errorMessage });
+      updateArrangement(arrangement.id, { status: 'error', statusMessage: `Error processing "${currentArrangementName}": ${errorMessage}`, error: errorMessage });
+      toast({ variant: "destructive", title: `Error processing ${currentArrangementName}`, description: errorMessage });
     }
   };
 
@@ -249,6 +264,7 @@ export default function DriveTuneApp() {
     setIsProcessingGlobal(true);
     for (const arrangement of readyArrangements) {
       // Ensure we use the latest state of the arrangement for processing
+      // by finding it in the current `arrangements` state array right before processing.
       const currentArrangementState = arrangements.find(a => a.id === arrangement.id);
       if (currentArrangementState) {
         await processArrangement(currentArrangementState);
@@ -334,7 +350,7 @@ export default function DriveTuneApp() {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><UploadCloud className="mr-2 h-6 w-6 text-primary" />Step 3: Add & Organize Arrangements</CardTitle>
-              <CardDescription>Add arrangements. Upload one or more PDF files per arrangement tray. They will be merged for AI processing. AI extracts metadata, names parts, and organizes them.</CardDescription>
+              <CardDescription>Add arrangements. Upload one or more PDF files per arrangement tray. They will be merged for AI processing. AI extracts metadata, names parts, and organizes them into the structure: {rootFolderId}/[Arrangement Type]/[Arrangement Name]/[Part Name].pdf</CardDescription>
             </CardHeader>
             <CardContent>
               <Button onClick={addNewArrangement} variant="outline" className="w-full mb-4">
@@ -388,3 +404,4 @@ export default function DriveTuneApp() {
     </div>
   );
 }
+

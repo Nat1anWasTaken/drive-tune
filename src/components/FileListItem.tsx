@@ -8,7 +8,10 @@ import { CheckCircle2, XCircle, Loader2, FileText, Edit3, Cog } from "lucide-rea
 
 interface PartListItemProps {
   part: ProcessedPart;
-  targetDirectoryPath?: string; // Passed from parent ArrangementListItem
+  arrangementName?: string;
+  arrangementType?: string;
+  rootFolderName?: string;
+  // targetDirectoryPath is no longer needed as we reconstruct the path preview
 }
 
 const getStatusIcon = (status: PartStatus) => {
@@ -18,7 +21,7 @@ const getStatusIcon = (status: PartStatus) => {
     case 'naming':
       return <Edit3 className="h-4 w-4 text-primary animate-pulse" />;
     case 'organizing':
-        return <Cog className="h-4 w-4 animate-spin text-accent" />; // Using Cog for organizing step
+        return <Cog className="h-4 w-4 animate-spin text-accent" />; 
     case 'done':
       return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     case 'error':
@@ -39,8 +42,21 @@ const getProgressValue = (status: PartStatus): number => {
   }
 }
 
-export function PartListItem({ part, targetDirectoryPath }: PartListItemProps) {
+export function PartListItem({ part, arrangementName, arrangementType, rootFolderName }: PartListItemProps) {
   const progressValue = getProgressValue(part.status);
+
+  const getDisplayPath = () => {
+    if (!part.generatedFilename || !arrangementName || !arrangementType || !rootFolderName) {
+      return part.generatedFilename || "Filename pending...";
+    }
+    // Show a simplified path like: .../Arrangement Type/Arrangement Name/filename.pdf
+    // This assumes rootFolderName is just one segment. If it can be complex, adjust.
+    const pathSegments = [arrangementType, arrangementName, part.generatedFilename];
+    if (pathSegments.length > 3) {
+        return `.../${pathSegments.slice(-3).join('/')}`;
+    }
+    return `${pathSegments.join('/')}`;
+  }
 
   return (
     <Card className="mb-2 shadow-sm border-border/70">
@@ -54,17 +70,19 @@ export function PartListItem({ part, targetDirectoryPath }: PartListItemProps) {
         <div className="text-xs text-muted-foreground mb-2">{part.statusMessage}</div>
         <Progress value={progressValue} className="h-1.5" />
         {part.error && <p className="text-destructive text-xs mt-1.5">{part.error}</p>}
-        {part.status === 'done' && targetDirectoryPath && part.generatedFilename && (
-          <p className="text-xs text-green-600 mt-1.5">
-            Organized as: .../{targetDirectoryPath.split('/').slice(-2).join('/')}/{part.generatedFilename}
+        
+        {part.status === 'done' && part.generatedFilename && arrangementName && arrangementType && rootFolderName && (
+          <p className="text-xs text-green-600 mt-1.5 truncate" title={`${rootFolderName}/${arrangementType}/${arrangementName}/${part.generatedFilename}`}>
+            Organized as: {getDisplayPath()}
           </p>
         )}
          {part.status !== 'done' && part.generatedFilename && (
           <p className="text-xs text-muted-foreground mt-1.5">
-            Filename: {part.generatedFilename}
+            Filename preview: {part.generatedFilename}
           </p>
         )}
       </CardContent>
     </Card>
   );
 }
+

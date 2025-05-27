@@ -3,6 +3,7 @@
 
 /**
  * @fileOverview Creates a nested directory structure in Google Drive based on music sheet metadata.
+ * The structure will be: RootFolder/{arrangement_type}/{arrangement_name}.
  *
  * - createMusicSheetDirectory - A function that handles the directory creation process.
  * - CreateMusicSheetDirectoryInput - The input type for the createMusicSheetDirectory function.
@@ -14,9 +15,8 @@ import {z} from 'genkit';
 
 const CreateMusicSheetDirectoryInputSchema = z.object({
   rootFolderName: z.string().describe('The name of the root folder in Google Drive provided by the user (e.g., "My Music Sheets").'),
-  compositionType: z.string().describe('The type of composition or arrangement (e.g., "Percussion Ensemble", "Saxophone Quartet"), which will be the first subfolder name.'),
-  compositionName: z.string().describe('The name of the overall composition (e.g., "Bolero", "The Four Seasons"), which will be part of the second subfolder name.'),
-  composerArrangers: z.string().describe('The composer(s) and/or arranger(s) (e.g., "John Williams", "Mozart (Arr. Liszt)"), which will be part of the second subfolder name, following " by ".'),
+  arrangement_type: z.string().describe('The type of composition or arrangement (e.g., "Percussion Ensemble", "Saxophone Quartet"), which will be the first subfolder name.'),
+  arrangement_name: z.string().describe('The name of the overall composition/arrangement (e.g., "Bolero", "The Four Seasons"), which will be the second subfolder name.'),
 });
 export type CreateMusicSheetDirectoryInput = z.infer<typeof CreateMusicSheetDirectoryInputSchema>;
 
@@ -38,29 +38,28 @@ const createDirectoryPrompt = ai.definePrompt({
 
   Based on the provided information, determine the target directory structure.
   The structure should be:
-  {{{rootFolderName}}}/{{{compositionType}}}/{{{compositionName}}} by {{{composerArrangers}}}
+  {{{rootFolderName}}}/{{{arrangement_type}}}/{{{arrangement_name}}}
 
   Input Data:
   - Root Folder Name: {{{rootFolderName}}}
-  - Composition Type (Arrangement Type): {{{compositionType}}}
-  - Composition Name: {{{compositionName}}}
-  - Composer and Arrangers: {{{composerArrangers}}}
+  - Arrangement Type: {{{arrangement_type}}}
+  - Arrangement Name: {{{arrangement_name}}}
 
   Return the full conceptual directory path of the deepest folder where the file would reside and a boolean indicating success.
-  Ensure the path components (compositionType, compositionName, composerArrangers) are sanitized for use as folder names (e.g., remove or replace invalid characters like '/').
+  Ensure the path components (arrangement_type, arrangement_name) are sanitized for use as folder names (e.g., remove or replace invalid characters like '/').
 
-  Example for input (rootFolderName: "My Digital Scores", compositionType: "String Quartet", compositionName: "Op. 18 No. 1", composerArrangers: "L. van Beethoven"):
+  Example for input (rootFolderName: "My Digital Scores", arrangement_type: "String Quartet", arrangement_name: "Op. 18 No. 1"):
   {
-    "directoryPath": "My Digital Scores/String Quartet/Op. 18 No. 1 by L. van Beethoven",
+    "directoryPath": "My Digital Scores/String Quartet/Op. 18 No. 1",
     "success": true
   }
 
-  Example for input (rootFolderName: "Band Music", compositionType: "Concert Band", compositionName: "Star Wars Saga", composerArrangers: "John Williams (Arr. Paul Lavender)"):
+  Example for input (rootFolderName: "Band Music", arrangement_type: "Concert Band", arrangement_name: "Star Wars Saga"):
   {
-    "directoryPath": "Band Music/Concert Band/Star Wars Saga by John Williams (Arr. Paul Lavender)",
+    "directoryPath": "Band Music/Concert Band/Star Wars Saga",
     "success": true
   }
-
+  
   If a directory conceptually already exists, return the path to that existing directory.
   `,
 });
@@ -72,7 +71,10 @@ const createMusicSheetDirectoryFlow = ai.defineFlow(
     outputSchema: CreateMusicSheetDirectoryOutputSchema,
   },
   async input => {
+    // Sanitize path components before passing to the prompt, or ensure the prompt handles it.
+    // The prompt already instructs to sanitize, so we trust it for now.
     const {output} = await createDirectoryPrompt(input);
     return output!;
   }
 );
+
