@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { PartListItem } from "./FileListItem"; // Renamed FileListItem to PartListItem effectively
-import { CheckCircle2, XCircle, Loader2, FileUp, AlertTriangle, Sparkles, FileSymlink, Pencil, Hourglass, FolderCog } from "lucide-react";
+import { PartListItem } from "./FileListItem";
+import { CheckCircle2, XCircle, Loader2, FileUp, AlertTriangle, Sparkles, FileSymlink, Pencil, Hourglass, FolderCog, Merge } from "lucide-react";
 import React, { useState } from "react";
 
 interface ArrangementListItemProps {
@@ -24,6 +24,8 @@ const getArrangementStatusIcon = (status: ArrangementStatus) => {
       return <FileUp className="h-5 w-5 text-muted-foreground" />;
     case 'ready_to_process':
       return <FileSymlink className="h-5 w-5 text-blue-500" />;
+    case 'merging_files':
+      return <Merge className="h-5 w-5 animate-pulse text-accent" />;
     case 'reading_file':
     case 'extracting_metadata':
       return <Loader2 className="h-5 w-5 animate-spin text-primary" />;
@@ -46,6 +48,7 @@ const getArrangementProgressValue = (status: ArrangementStatus, partsProcessed?:
   switch (status) {
     case 'pending_upload': return 0;
     case 'ready_to_process': return 5;
+    case 'merging_files': return 8;
     case 'reading_file': return 10;
     case 'extracting_metadata': return 25;
     case 'creating_directory': return 40;
@@ -54,7 +57,7 @@ const getArrangementProgressValue = (status: ArrangementStatus, partsProcessed?:
         return 40 + (partsProcessed / totalParts) * 50; // processing_parts takes from 40% to 90%
       }
       return 40;
-    case 'all_parts_processed': return 95; // Indicates completion but with potential part errors
+    case 'all_parts_processed': return 95;
     case 'done': return 100;
     case 'error': return 100;
     default: return 0;
@@ -74,7 +77,7 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
     if (editableName.trim()) {
       updateArrangementName(arrangement.id, editableName.trim());
     } else {
-      setEditableName(arrangement.name); // Reset if empty
+      setEditableName(arrangement.name); 
     }
     setIsEditingName(false);
   };
@@ -82,7 +85,7 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
   const partsProcessedCount = arrangement.processedParts.filter(p => p.status === 'done' || p.status === 'error').length;
   const totalPartsCount = arrangement.processedParts.length;
   const progressValue = getArrangementProgressValue(arrangement.status, partsProcessedCount, totalPartsCount);
-  const canProcess = arrangement.status === 'ready_to_process' && !!arrangement.file && !isProcessingGlobal;
+  const canProcess = arrangement.status === 'ready_to_process' && !!arrangement.files && arrangement.files.length > 0 && !isProcessingGlobal;
 
   return (
     <Card className="shadow-md bg-card/70 border">
@@ -119,14 +122,22 @@ export function ArrangementListItem({ arrangement, onFileChange, onProcess, isPr
               onChange={(e) => onFileChange(arrangement.id, e)}
               className="hidden"
               accept=".pdf"
+              multiple // Allow multiple files
             />
             <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="w-full">
-              <FileUp className="mr-2 h-4 w-4" /> Upload PDF for this Arrangement
+              <FileUp className="mr-2 h-4 w-4" /> Upload PDF(s) for this Arrangement
             </Button>
           </>
         )}
-        {arrangement.file && arrangement.status !== 'pending_upload' && (
-            <p className="text-xs text-muted-foreground mb-2">File: {arrangement.file.name}</p>
+        {arrangement.files && arrangement.files.length > 0 && arrangement.status !== 'pending_upload' && (
+            <div className="text-xs text-muted-foreground mb-2">
+              <p>File(s):</p>
+              <ul className="list-disc list-inside pl-2">
+                {arrangement.files.map((file, index) => (
+                  <li key={index} className="truncate" title={file.name}>{file.name}</li>
+                ))}
+              </ul>
+            </div>
         )}
 
         {arrangement.error && <p className="text-destructive text-sm mt-2">{arrangement.error}</p>}

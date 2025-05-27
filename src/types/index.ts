@@ -2,10 +2,14 @@
 
 // Information for a single part within a music sheet
 export type PartInformation = {
-  label: string; // e.g., "Flute I", "Full Score"
+  label: string; // e.g., "Flute I", "Full Score", "File Subject"
   is_full_score: boolean;
   start_page: number;
   end_page: number;
+  // New fields based on previous discussion.
+  // The 'label' field might serve as 'fileSubject' for part naming.
+  // 'instrumentations' will be an array of strings.
+  instrumentations?: string[]; // e.g. ["Flute", "Oboe", "Clarinet"] or ["Full Score"]
 };
 
 // Output schema for the metadata extraction flow
@@ -13,15 +17,21 @@ export interface ExtractedMusicSheetMetadata {
   title: string; // Overall title of the composition
   composers: string[]; // Array of composer/arranger names
   arrangement_type: string; // e.g., "Concert Band", "String Quartet"
-  parts: PartInformation[]; // Array of parts found in the sheet
+  parts: PartInformation[]; // Array of parts found in the sheet (was PartMetadata, now PartInformation)
+
+  // These fields seem to be based on the filename format discussion,
+  // but metadata extraction itself should focus on what's *in* the document.
+  // The filename generation flow will synthesize these from 'parts.label'.
+  // fileSubject?: string;
+  // instrumentationsInTheFile?: string[];
 }
 
 // Represents an "Arrangement" uploaded by the user
 export interface Arrangement {
   id: string; // Unique ID for this arrangement
   name: string; // User-editable name for the arrangement (e.g., "Bolero Arrangement")
-  file?: File; // The single PDF file for this arrangement
-  dataUri?: string; // Data URI of the file
+  files?: File[]; // Array of PDF files for this arrangement
+  dataUri?: string; // Data URI of the (potentially merged) file
   status: ArrangementStatus; // Overall status of processing this arrangement
   statusMessage: string;
   extractedMetadata?: ExtractedMusicSheetMetadata;
@@ -43,7 +53,8 @@ export interface ProcessedPart extends PartInformation {
 export type ArrangementStatus =
   | 'pending_upload' // Waiting for file to be added
   | 'ready_to_process' // File uploaded, ready for processing
-  | 'reading_file'     // Reading the main PDF file
+  | 'merging_files' // If multiple files, currently merging them
+  | 'reading_file'     // Reading the main PDF file (single or merged)
   | 'extracting_metadata' // AI extracting metadata for all parts
   | 'processing_parts'  // Looping through parts to name and organize them
   | 'creating_directory' // Determining base directory for all parts
