@@ -18,8 +18,7 @@ import { createMusicSheetDirectory } from "@/ai/flows/create-music-sheet-directo
 import { UploadCloud, CheckCircle, FolderOpenDot, LogIn, Link as LinkIcon, Sparkles, Loader2, PlusCircle, Music2, Merge, AlertTriangle } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 
-// Ensure these are set in your .env.local file
-const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+// Ensure this is set in your .env.local file
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
@@ -62,15 +61,11 @@ export default function DriveTuneApp() {
     scriptGapi.async = true;
     scriptGapi.defer = true;
     scriptGapi.onload = () => {
-        (window as any).gapi.load('client', () => {
+        // gapi.load ensures gapi.client is available.
+        // Specific API client libraries (like gapi.client.drive) are loaded by discoveryDocs if gapi.client.init is called.
+        // Since backend handles Drive API calls, explicit client.init for Drive might not be needed.
+        (window as any).gapi.load('client', () => { 
           setGapiReady(true);
-          if (GOOGLE_API_KEY) {
-            (window as any).gapi.client.init({ apiKey: GOOGLE_API_KEY, discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })
-              .catch((error: any) => {
-                console.error("Error initializing GAPI client:", error);
-                toast({ variant: "destructive", title: "GAPI Init Error", description: "Could not initialize Google API client." });
-              });
-          }
         });
     };
     document.body.appendChild(scriptGapi);
@@ -96,10 +91,6 @@ export default function DriveTuneApp() {
         callback: (tokenResponse: TokenResponse) => {
           if (tokenResponse && tokenResponse.access_token) {
             setAccessToken(tokenResponse.access_token);
-             // gapi.client.setToken can be called if gapi client is initialized and used for other things
-            if ((window as any).gapi && (window as any).gapi.client && (window as any).gapi.client.getToken() === null) {
-                (window as any).gapi.client.setToken({ access_token: tokenResponse.access_token });
-            }
             toast({ title: "Google Drive Connected", description: "Access token received." });
           } else {
             toast({ variant: "destructive", title: "Connection Failed", description: "Could not get access token."});
@@ -116,8 +107,8 @@ export default function DriveTuneApp() {
 
 
   const handleConnectDrive = () => {
-    if (!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY) {
-        toast({ variant: "destructive", title: "Configuration Missing", description: "Client ID or API Key is not set for client." });
+    if (!GOOGLE_CLIENT_ID) {
+        toast({ variant: "destructive", title: "Configuration Missing", description: "Client ID is not set for client." });
         return;
     }
     if (tokenClient) {
@@ -482,14 +473,14 @@ export default function DriveTuneApp() {
       </header>
 
       <div className="w-full max-w-3xl space-y-6">
-        {!GOOGLE_API_KEY || !GOOGLE_CLIENT_ID ? (
+        {!GOOGLE_CLIENT_ID ? (
             <Card className="border-destructive bg-destructive/10">
                 <CardHeader>
                     <CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2 h-6 w-6"/>Configuration Incomplete</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <p className="text-destructive-foreground">
-                        Client-side Google API Key or Client ID is not configured. Please set <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_API_KEY</code> and <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in your environment variables.
+                        Client-side Google Client ID is not configured. Please set <code className="bg-destructive/20 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in your environment variables.
                         Follow the instructions in the <code className="bg-destructive/20 px-1 rounded">.env</code> file.
                     </p>
                 </CardContent>
@@ -502,7 +493,7 @@ export default function DriveTuneApp() {
           </CardHeader>
           <CardContent>
             {!isDriveConnected ? (
-              <Button onClick={handleConnectDrive} disabled={isConnecting || !gapiReady || !gisReady || !tokenClient || !GOOGLE_CLIENT_ID || !GOOGLE_API_KEY} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button onClick={handleConnectDrive} disabled={isConnecting || !gapiReady || !gisReady || !tokenClient || !GOOGLE_CLIENT_ID } className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isConnecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
                 {isConnecting ? "Connecting..." : "Connect to Google Drive"}
               </Button>
