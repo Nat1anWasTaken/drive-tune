@@ -533,7 +533,7 @@ export default function DriveTuneApp() {
               </div>
               <Input
                 className="mt-4 w-full"
-                placeholder="Enter additional instructions..."
+                placeholder="Additional instructions for extracting parts (optional)"
                 value={additionalInstructions}
                 onChange={(e) => setAdditionalInstructions(e.target.value)}
               />
