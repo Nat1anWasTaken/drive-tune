@@ -29,6 +29,7 @@ import {
   Merge,
   Pencil,
   Sparkles,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
@@ -222,7 +223,7 @@ export function ArrangementListItem({
                 title="Remove Arrangement"
                 disabled={isProcessingGlobal}
               >
-                <XCircle className="h-5 w-5" />
+                <Trash2 className="h-5 w-5" />
               </Button>
             )}
           </div>

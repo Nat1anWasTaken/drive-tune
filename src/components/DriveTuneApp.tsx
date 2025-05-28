@@ -83,8 +83,9 @@ export default function DriveTuneApp() {
   >([]);
   const [isLoadingArrangementTypes, setIsLoadingArrangementTypes] =
     useState(false);
-  const [additionalInstructions, setAdditionalInstructions] =
-    useState<string>("");
+  const [additionalInstructions, setAdditionalInstructions] = useState<string>(
+    localStorage.getItem("driveTuneAdditionalInstructions") || ""
+  );
 
   // useEffects for loading APIs are typically within their respective hooks
   useEffect(() => {
@@ -535,7 +536,13 @@ export default function DriveTuneApp() {
                 className="mt-4 w-full"
                 placeholder="Additional instructions for extracting parts (optional)"
                 value={additionalInstructions}
-                onChange={(e) => setAdditionalInstructions(e.target.value)}
+                onChange={(e) => {
+                  setAdditionalInstructions(e.target.value);
+                  localStorage.setItem(
+                    "driveTuneAdditionalInstructions",
+                    e.target.value
+                  );
+                }}
               />
             </>
           )}
