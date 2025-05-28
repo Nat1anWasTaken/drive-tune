@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { GoogleDriveAuth } from "./use-google-drive-auth"; // Import the auth hook
 import { useToast } from "./use-toast"; // Assuming useToast is in the same directory or adjust path
-import { GoogleDriveAuth } from "./useGoogleDriveAuth"; // Import the auth hook
 
 // Ensure this is set in your .env.local file
 const GOOGLE_PICKER_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY;

@@ -6,6 +6,11 @@ import { useArrangementManager } from "@/hooks/use-arrangement-manager"; // Cust
 import { useGoogleDriveAuth } from "@/hooks/use-google-drive-auth"; // Custom Hook
 import { useGoogleDriveFolderManager } from "@/hooks/use-google-drive-folder-manager"; // Custom Hook
 import { useToast } from "@/hooks/use-toast"; // Adjusted path
+import {
+  getFileSizeFromDataUri,
+  shouldUseFilesAPI,
+  validateFileSize,
+} from "@/lib/file-size-utils"; // Client-safe utility functions
 import { Arrangement } from "@/types"; // Import Arrangement from central types
 // Import UI Components as needed, e.g.:
 // import { Button } from "./ui/button";
@@ -112,6 +117,7 @@ export default function DriveTuneApp() {
       });
       return;
     }
+
     // Define getExistingArrangementTypes for this specific call
     const getExistingArrangementTypes = async (): Promise<
       { id: string; name: string }[]
@@ -128,12 +134,80 @@ export default function DriveTuneApp() {
       return listSubFolders(rootFolderDriveId);
     };
 
+    // Enhanced extractMusicSheetMetadata with file size checking and user feedback
+    const extractMusicSheetMetadataWithFeedback = async (data: {
+      musicSheetDataUri: string;
+      existingArrangementTypes: string[];
+    }) => {
+      try {
+        // Check if it's a data URI and provide file size feedback
+        if (data.musicSheetDataUri.startsWith("data:")) {
+          const fileSize = getFileSizeFromDataUri(data.musicSheetDataUri);
+          const validation = validateFileSize(fileSize);
+
+          if (!validation.valid) {
+            toast({
+              title: "File Too Large",
+              description: validation.recommendation,
+              variant: "destructive",
+            });
+            throw new Error(validation.recommendation);
+          }
+
+          // Show info toast about processing method
+          const usesFilesAPI = shouldUseFilesAPI(fileSize);
+          if (usesFilesAPI) {
+            toast({
+              title: "Processing Large File",
+              description: `File size: ${Math.round(
+                fileSize / (1024 * 1024)
+              )} MB. Using Files API for processing (may take longer).`,
+            });
+          }
+        }
+
+        return await extractMusicSheetMetadata(data);
+      } catch (error: any) {
+        // Enhanced error handling with user-friendly messages
+        if (error.message?.includes("File size exceeds")) {
+          toast({
+            title: "File Too Large",
+            description:
+              "Please reduce the file size or split the PDF into smaller parts.",
+            variant: "destructive",
+          });
+        } else if (error.message?.includes("Unable to upload file")) {
+          toast({
+            title: "Upload Failed",
+            description:
+              "Failed to upload file to processing service. Please check your internet connection and try again.",
+            variant: "destructive",
+          });
+        } else if (error.message?.includes("File processing failed")) {
+          toast({
+            title: "Processing Failed",
+            description:
+              "The file could not be processed. Please ensure it's a valid PDF file.",
+            variant: "destructive",
+          });
+        } else if (error.message?.includes("File processing timed out")) {
+          toast({
+            title: "Processing Timeout",
+            description:
+              "File processing took too long. Please try again with a smaller file.",
+            variant: "destructive",
+          });
+        }
+        throw error;
+      }
+    };
+
     await processArrangement(
       // Calling the hook's processArrangement
       arrangement,
       rootFolderDriveId,
       findOrCreateFolderAPI,
-      extractMusicSheetMetadata, // Imported AI flow
+      extractMusicSheetMetadataWithFeedback, // Use enhanced version with feedback
       getExistingArrangementTypes // Pass the function as the 5th argument
     );
   };
@@ -147,6 +221,7 @@ export default function DriveTuneApp() {
       });
       return;
     }
+
     // Define getExistingArrangementTypes for this specific call
     const getExistingArrangementTypes = async (): Promise<
       { id: string; name: string }[]
@@ -163,11 +238,79 @@ export default function DriveTuneApp() {
       return listSubFolders(rootFolderDriveId);
     };
 
+    // Enhanced extractMusicSheetMetadata with file size checking and user feedback
+    const extractMusicSheetMetadataWithFeedback = async (data: {
+      musicSheetDataUri: string;
+      existingArrangementTypes: string[];
+    }) => {
+      try {
+        // Check if it's a data URI and provide file size feedback
+        if (data.musicSheetDataUri.startsWith("data:")) {
+          const fileSize = getFileSizeFromDataUri(data.musicSheetDataUri);
+          const validation = validateFileSize(fileSize);
+
+          if (!validation.valid) {
+            toast({
+              title: "File Too Large",
+              description: validation.recommendation,
+              variant: "destructive",
+            });
+            throw new Error(validation.recommendation);
+          }
+
+          // Show info toast about processing method for large files
+          const usesFilesAPI = shouldUseFilesAPI(fileSize);
+          if (usesFilesAPI) {
+            toast({
+              title: "Processing Large File",
+              description: `File size: ${Math.round(
+                fileSize / (1024 * 1024)
+              )} MB. Using Files API for processing (may take longer).`,
+            });
+          }
+        }
+
+        return await extractMusicSheetMetadata(data);
+      } catch (error: any) {
+        // Enhanced error handling with user-friendly messages
+        if (error.message?.includes("File size exceeds")) {
+          toast({
+            title: "File Too Large",
+            description:
+              "Please reduce the file size or split the PDF into smaller parts.",
+            variant: "destructive",
+          });
+        } else if (error.message?.includes("Unable to upload file")) {
+          toast({
+            title: "Upload Failed",
+            description:
+              "Failed to upload file to processing service. Please check your internet connection and try again.",
+            variant: "destructive",
+          });
+        } else if (error.message?.includes("File processing failed")) {
+          toast({
+            title: "Processing Failed",
+            description:
+              "The file could not be processed. Please ensure it's a valid PDF file.",
+            variant: "destructive",
+          });
+        } else if (error.message?.includes("File processing timed out")) {
+          toast({
+            title: "Processing Timeout",
+            description:
+              "File processing took too long. Please try again with a smaller file.",
+            variant: "destructive",
+          });
+        }
+        throw error;
+      }
+    };
+
     await handleProcessAllReadyArrangements(
       // Calling the hook's function
       rootFolderDriveId,
       findOrCreateFolderAPI,
-      extractMusicSheetMetadata, // Imported AI flow
+      extractMusicSheetMetadataWithFeedback, // Use enhanced version with feedback
       getExistingArrangementTypes // Pass the function as the 4th argument
     );
   };

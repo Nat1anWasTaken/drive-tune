@@ -9,13 +9,29 @@
  */
 
 import { ai } from "@/ai/genkit";
+import {
+  FileMetadataResponse,
+  GoogleAIFileManager,
+} from "@google/generative-ai/server";
 import { z } from "genkit";
+
+// Files API related types and constants
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// Initialize Google AI File Manager
+if (!GEMINI_API_KEY) {
+  throw new Error(
+    "GEMINI_API_KEY environment variable is required for Files API"
+  );
+}
+
+const fileManager = new GoogleAIFileManager(GEMINI_API_KEY);
 
 const ExtractMusicSheetMetadataInputSchema = z.object({
   musicSheetDataUri: z
     .string()
     .describe(
-      "A music sheet file (potentially merged by user), as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+      "A music sheet file (potentially merged by user), either as a data URI (format: 'data:<mimetype>;base64,<encoded_data>') or as a Gemini Files API URI (format: 'https://generativelanguage.googleapis.com/v1beta/files/<file-id>')."
     ),
   existingArrangementTypes: z
     .array(z.string())
@@ -79,10 +95,253 @@ export type ExtractMusicSheetMetadataOutput = z.infer<
   typeof ExtractMusicSheetMetadataOutputSchema
 >;
 
+/**
+ * Uploads a file to the Gemini Files API using the official GoogleAIFileManager
+ */
+async function uploadFileToGeminiAPI(
+  fileBuffer: Buffer,
+  mimeType: string,
+  displayName?: string
+) {
+  const uploadResponse = await fileManager.uploadFile(fileBuffer, {
+    mimeType: mimeType,
+    displayName: displayName || "music-sheet.pdf",
+  });
+
+  return uploadResponse.file;
+}
+
+/**
+ * Checks the status of an uploaded file using the official GoogleAIFileManager
+ */
+async function getFileStatus(fileName: string) {
+  const response = await fileManager.getFile(fileName);
+  return response;
+}
+
+/**
+ * Waits for a file to be processed by the Gemini Files API using the official GoogleAIFileManager
+ */
+async function waitForFileProcessing(
+  fileName: string,
+  maxWaitTimeMs: number = 60000
+) {
+  const startTime = Date.now();
+  const checkInterval = 2000; // Check every 2 seconds
+
+  while (Date.now() - startTime < maxWaitTimeMs) {
+    const file = await getFileStatus(fileName);
+
+    if (file.state === "ACTIVE") {
+      return file;
+    } else if (file.state === "FAILED") {
+      const errorMessage =
+        file.error?.message || "Unknown error during file processing";
+      throw new Error(`File processing failed: ${errorMessage}`);
+    }
+
+    // Wait before next check
+    await new Promise((resolve) => setTimeout(resolve, checkInterval));
+  }
+
+  throw new Error(`File processing timed out after ${maxWaitTimeMs}ms`);
+}
+
+/**
+ * Deletes an uploaded file from the Gemini Files API using the official GoogleAIFileManager
+ */
+async function deleteFile(fileName: string): Promise<void> {
+  try {
+    await fileManager.deleteFile(fileName);
+  } catch (error: any) {
+    // Don't throw on 404 errors (file not found)
+    if (
+      !error.message?.includes("404") &&
+      !error.message?.includes("not found")
+    ) {
+      console.warn(`Failed to delete file ${fileName}:`, error.message);
+    }
+  }
+}
+
+/**
+ * Converts a data URI to a Buffer and extracts MIME type, or validates Files API URI
+ */
+function processInputUri(uri: string): {
+  buffer?: Buffer;
+  mimeType?: string;
+  isFilesApiUri: boolean;
+} {
+  // Check if it's a Files API URI
+  if (
+    uri.startsWith("https://generativelanguage.googleapis.com/v1beta/files/")
+  ) {
+    return { isFilesApiUri: true };
+  }
+
+  // Handle data URI
+  const match = uri.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error(
+      "Invalid URI format. Expected either a data URI (format: 'data:<mimetype>;base64,<encoded_data>') or Files API URI (format: 'https://generativelanguage.googleapis.com/v1beta/files/<file-id>')"
+    );
+  }
+
+  const mimeType = match[1];
+  const base64Data = match[2];
+  const buffer = Buffer.from(base64Data, "base64");
+
+  return { buffer, mimeType, isFilesApiUri: false };
+}
+
 export async function extractMusicSheetMetadata(
   input: ExtractMusicSheetMetadataInput
 ): Promise<ExtractMusicSheetMetadataOutput> {
-  return extractMusicSheetMetadataFlow(input);
+  // Validate file size and choose approach
+  const MAX_INLINE_SIZE = 20 * 1024 * 1024; // 20 MB in bytes
+  const MAX_FILES_API_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB in bytes
+
+  // Check if input is already a Files API URI
+  const inputInfo = processInputUri(input.musicSheetDataUri);
+
+  if (inputInfo.isFilesApiUri) {
+    // Already a Files API URI, use directly
+    // For Files API URIs, we need to determine the MIME type
+    // Since we don't have the mimeType for pre-existing Files API URIs,
+    // we'll assume it's a PDF (the most common case for our use case)
+    console.log("Input is already a Files API URI, proceeding directly...");
+    const inputWithMime = {
+      ...input,
+      mimeType: "application/pdf", // Default assumption for Files API URIs
+    };
+    return await extractMusicSheetMetadataFlow(inputWithMime);
+  }
+
+  // Extract the buffer and calculate file size for data URIs
+  const { buffer, mimeType } = inputInfo;
+  if (!buffer || !mimeType) {
+    throw new Error("Failed to process data URI");
+  }
+
+  const fileSize = buffer.length;
+
+  console.log(`Processing file: ${Math.round(fileSize / (1024 * 1024))} MB`);
+
+  if (fileSize > MAX_FILES_API_SIZE) {
+    throw new Error(
+      `File size exceeds the maximum limit of 2 GB for Gemini Files API. ` +
+        `File size: ${Math.round(fileSize / (1024 * 1024))} MB. ` +
+        `Please reduce the file size or split the PDF into smaller parts.`
+    );
+  }
+
+  let uploadedFile: FileMetadataResponse | null = null;
+  let useFilesAPI = fileSize > MAX_INLINE_SIZE;
+
+  try {
+    if (useFilesAPI) {
+      console.log("File size exceeds 20 MB, using Files API for upload...");
+
+      // Upload file to Files API
+      uploadedFile = await uploadFileToGeminiAPI(
+        buffer,
+        mimeType,
+        `music-sheet-${Date.now()}.pdf`
+      );
+
+      console.log(`File uploaded successfully: ${uploadedFile.name}`);
+
+      // Wait for file to be processed
+      console.log("Waiting for file processing...");
+      uploadedFile = await waitForFileProcessing(uploadedFile.name);
+
+      console.log(
+        "File processing completed, waiting for file to be fully ready..."
+      );
+      // Add a buffer time to ensure the file is truly ready for use
+      await new Promise((resolve) => setTimeout(resolve, 3000)); // 3 second buffer
+
+      console.log("Proceeding with metadata extraction...");
+
+      // Create modified input with file URI and corrected MIME type
+      // Files API often returns 'application/octet-stream' which is not supported by Gemini
+      // Use the original MIME type we extracted from the data URI instead
+      const correctedMimeType =
+        uploadedFile.mimeType === "application/octet-stream"
+          ? mimeType // Use the original MIME type from data URI parsing
+          : uploadedFile.mimeType;
+
+      const modifiedInput = {
+        ...input,
+        musicSheetDataUri: uploadedFile.uri,
+        mimeType: correctedMimeType,
+      };
+
+      const result = await extractMusicSheetMetadataFlow(modifiedInput);
+
+      // Clean up uploaded file after successful processing
+      if (uploadedFile) {
+        try {
+          console.log(`Cleaning up uploaded file: ${uploadedFile.name}`);
+          await deleteFile(uploadedFile.name);
+        } catch (cleanupError) {
+          console.warn("Failed to clean up uploaded file:", cleanupError);
+          // Don't throw cleanup errors - the main operation was successful
+        }
+      }
+
+      return result;
+    } else {
+      // Use original approach for smaller files
+      console.log(
+        "File size is within limits, using direct base64 approach..."
+      );
+      const inputWithMime = {
+        ...input,
+        mimeType: mimeType,
+      };
+      return await extractMusicSheetMetadataFlow(inputWithMime);
+    }
+  } catch (error: any) {
+    // Enhanced error handling for Files API
+    if (error.message?.includes("Failed to upload file")) {
+      throw new Error(
+        `Unable to upload file to Gemini Files API. This could be due to: ` +
+          `1. Network connectivity issues, ` +
+          `2. API quota exceeded, ` +
+          `3. Invalid file format. ` +
+          `Original error: ${error.message}`
+      );
+    } else if (error.message?.includes("File processing failed")) {
+      throw new Error(
+        `Gemini could not process the uploaded file. This could be due to: ` +
+          `1. Unsupported file format, ` +
+          `2. Corrupted file, ` +
+          `3. File content issues. ` +
+          `Original error: ${error.message}`
+      );
+    } else if (error.message?.includes("File processing timed out")) {
+      throw new Error(
+        `File processing timed out. This can happen with very large or complex files. ` +
+          `Please try again or reduce the file size.`
+      );
+    }
+
+    // Clean up uploaded file on error
+    if (uploadedFile && useFilesAPI) {
+      try {
+        console.log(
+          `Cleaning up uploaded file after error: ${uploadedFile.name}`
+        );
+        await deleteFile(uploadedFile.name);
+      } catch (cleanupError) {
+        console.warn("Failed to clean up uploaded file:", cleanupError);
+      }
+    }
+
+    // Re-throw other errors as-is
+    throw error;
+  }
 }
 
 const systemPrompt = `
@@ -120,14 +379,32 @@ I will also provide a list of \`existingArrangementTypes\`. You MUST choose the 
 Please extract all fields as JSON only.
 `;
 
+// Updated schema to include mimeType for Files API URIs
+const ExtractMusicSheetMetadataInputWithMimeSchema = z.object({
+  musicSheetDataUri: z
+    .string()
+    .describe(
+      "A music sheet file (potentially merged by user), either as a data URI (format: 'data:<mimetype>;base64,<encoded_data>') or as a Gemini Files API URI (format: 'https://generativelanguage.googleapis.com/v1beta/files/<file-id>')."
+    ),
+  existingArrangementTypes: z
+    .array(z.string())
+    .describe(
+      "An array of predefined arrangement type names that the AI must choose from. e.g., ['Concert Band', 'Jazz Ensemble', 'String Orchestra']"
+    ),
+  mimeType: z
+    .string()
+    .optional()
+    .describe("The MIME type of the file, required for Files API URIs"),
+});
+
 const extractMusicSheetMetadataPrompt = ai.definePrompt({
   name: "extractMusicSheetMetadataPrompt",
-  input: { schema: ExtractMusicSheetMetadataInputSchema },
+  input: { schema: ExtractMusicSheetMetadataInputWithMimeSchema },
   output: { schema: ExtractMusicSheetMetadataOutputSchema },
   prompt: `${systemPrompt}
 
   Existing Arrangement Types: {{existingArrangementTypes}}
-  Music Sheet File: {{media url=musicSheetDataUri}}`,
+  Music Sheet File: {{media url=musicSheetDataUri contentType=mimeType}}`,
   config: {
     responseMimeType: "application/json", // Ensure Genkit requests JSON from Gemini
   },
@@ -136,51 +413,74 @@ const extractMusicSheetMetadataPrompt = ai.definePrompt({
 const extractMusicSheetMetadataFlow = ai.defineFlow(
   {
     name: "extractMusicSheetMetadataFlow",
-    inputSchema: ExtractMusicSheetMetadataInputSchema,
+    inputSchema: ExtractMusicSheetMetadataInputWithMimeSchema,
     outputSchema: ExtractMusicSheetMetadataOutputSchema,
   },
   async (input) => {
-    const { output } = await extractMusicSheetMetadataPrompt(input);
-    if (!output) {
-      throw new Error("No output from metadata extraction prompt.");
-    }
-    // Validate that all required fields are present, especially for parts
-    if (
-      !output.title ||
-      !output.composers ||
-      output.composers.length === 0 ||
-      !output.arrangement_type ||
-      !output.parts ||
-      output.parts.length === 0
-    ) {
-      let missingFields = [];
-      if (!output.title) missingFields.push("title");
-      if (!output.composers || output.composers.length === 0)
-        missingFields.push("composers");
-      if (!output.arrangement_type) missingFields.push("arrangement_type");
-      if (!output.parts || output.parts.length === 0)
-        missingFields.push("parts");
+    try {
+      const { output } = await extractMusicSheetMetadataPrompt(input);
+      if (!output) {
+        throw new Error("No output from metadata extraction prompt.");
+      }
+      // Validate that all required fields are present, especially for parts
+      if (
+        !output.title ||
+        !output.composers ||
+        output.composers.length === 0 ||
+        !output.arrangement_type ||
+        !output.parts ||
+        output.parts.length === 0
+      ) {
+        let missingFields = [];
+        if (!output.title) missingFields.push("title");
+        if (!output.composers || output.composers.length === 0)
+          missingFields.push("composers");
+        if (!output.arrangement_type) missingFields.push("arrangement_type");
+        if (!output.parts || output.parts.length === 0)
+          missingFields.push("parts");
 
-      (output.parts || []).forEach((part, index) => {
-        if (!part.label) missingFields.push(`parts[${index}].label`);
-        if (part.is_full_score === undefined)
-          missingFields.push(`parts[${index}].is_full_score`);
-        if (part.start_page === undefined)
-          missingFields.push(`parts[${index}].start_page`);
-        if (part.end_page === undefined)
-          missingFields.push(`parts[${index}].end_page`);
-        if (!part.primaryInstrumentation)
-          missingFields.push(`parts[${index}].primaryInstrumentation`);
-      });
+        (output.parts || []).forEach((part, index) => {
+          if (!part.label) missingFields.push(`parts[${index}].label`);
+          if (part.is_full_score === undefined)
+            missingFields.push(`parts[${index}].is_full_score`);
+          if (part.start_page === undefined)
+            missingFields.push(`parts[${index}].start_page`);
+          if (part.end_page === undefined)
+            missingFields.push(`parts[${index}].end_page`);
+          if (!part.primaryInstrumentation)
+            missingFields.push(`parts[${index}].primaryInstrumentation`);
+        });
 
-      if (missingFields.length > 0) {
+        if (missingFields.length > 0) {
+          throw new Error(
+            `AI could not extract all required metadata fields. Missing or invalid: ${missingFields.join(
+              ", "
+            )}`
+          );
+        }
+      }
+      return output;
+    } catch (error: any) {
+      // Enhanced error handling for common API issues
+      if (error.message?.includes("400 Bad Request")) {
         throw new Error(
-          `AI could not extract all required metadata fields. Missing or invalid: ${missingFields.join(
-            ", "
-          )}`
+          `Invalid request to Gemini API. This could be due to: ` +
+            `1. File too large (max 20 MB), ` +
+            `2. Unsupported file format, ` +
+            `3. Corrupted data URI. ` +
+            `Original error: ${error.message}`
+        );
+      } else if (error.message?.includes("413")) {
+        throw new Error(
+          `Request payload too large. Please reduce the file size to under 20 MB.`
+        );
+      } else if (error.message?.includes("429")) {
+        throw new Error(
+          `Rate limit exceeded. Please wait a moment and try again.`
         );
       }
+      // Re-throw other errors as-is
+      throw error;
     }
-    return output;
   }
 );
