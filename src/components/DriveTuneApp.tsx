@@ -1,5 +1,5 @@
 "use client";
-// gapi types are available via @types/gapi, google.accounts types via @types/google.accounts
+// gapi types{} are available via @types/gapi, google.accounts types via @types/google.accounts
 
 import { extractMusicSheetMetadata } from "@/ai/flows/extract-music-sheet-metadata"; // AI Flow
 import { useArrangementManager } from "@/hooks/use-arrangement-manager"; // Custom Hook
@@ -439,8 +439,8 @@ export default function DriveTuneApp() {
               >
                 Create or Use Folder by Name:
               </label>
-              <div className="flex space-x-2">
-                <input
+              <div className="flex space-x-2 items-center">
+                <Input
                   id="rootFolderName"
                   type="text"
                   value={tempRootFolderName}
@@ -452,7 +452,7 @@ export default function DriveTuneApp() {
                 <button
                   onClick={handleSetRootFolderByName}
                   disabled={isSettingRootFolder || !tempRootFolderName.trim()}
-                  className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50"
+                  className="bg-indigo-500 hover:bg-indigo-600 text-white whitespace-nowrap text-sm font-bold py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50"
                 >
                   {isSettingRootFolder ? "Setting..." : "Set/Create"}
                 </button>
