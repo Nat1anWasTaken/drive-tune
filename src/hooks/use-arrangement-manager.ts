@@ -187,6 +187,7 @@ export function useArrangementManager(
           status: "ready_to_process" as ArrangementStatus,
           statusMessage: `${pdfFiles.length} file(s) ready. Click process to continue.`,
         });
+        addNewArrangement(); // Add a new arrangement after file selection, since the current one is now ready
       }
     },
     [toast, updateArrangement]
