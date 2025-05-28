@@ -33,6 +33,7 @@ export interface ArrangementManager {
   addNewArrangement: () => void;
   updateArrangementName: (arrangementId: string, newName: string) => void; // Added
   updateArrangement: (id: string, updates: Partial<Arrangement>) => void;
+  removeArrangement: (id: string) => void;
   updatePartStatus: (
     arrangementId: string,
     partId: string,
@@ -119,6 +120,12 @@ export function useArrangementManager(
     },
     []
   );
+
+  const removeArrangement = useCallback((id: string) => {
+    setArrangements((prevArrangements) =>
+      prevArrangements.filter((arr) => arr.id !== id)
+    );
+  }, []);
 
   const updatePartStatus = useCallback(
     (
@@ -657,6 +664,7 @@ export function useArrangementManager(
     addNewArrangement,
     updateArrangementName,
     updateArrangement,
+    removeArrangement,
     updatePartStatus,
     handleFileChangeForArrangement,
     processArrangement,

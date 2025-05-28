@@ -44,6 +44,7 @@ interface ArrangementListItemProps {
   isProcessingGlobal: boolean;
   updateArrangementName: (arrangementId: string, newName: string) => void;
   rootFolderName: string; // Added to pass to PartListItem
+  removeArrangement?: (arrangementId: string) => void; // Optional prop for removing arrangement
 }
 
 const getArrangementStatusIcon = (status: ArrangementStatus) => {
@@ -113,6 +114,7 @@ export function ArrangementListItem({
   isProcessingGlobal,
   updateArrangementName,
   rootFolderName,
+  removeArrangement,
 }: ArrangementListItemProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -208,8 +210,20 @@ export function ArrangementListItem({
               )}
             </CardTitle>
           )}
-
-          {getArrangementStatusIcon(arrangement.status)}
+          <div className={"flex flex-row items-center justify-center gap-2"}>
+            {getArrangementStatusIcon(arrangement.status)}
+            {removeArrangement && (
+              <Button
+                variant="outline"
+                size="icon"
+                className="text-destructive hover:bg-destructive/10"
+                onClick={() => removeArrangement(arrangement.id)}
+                title="Remove Arrangement"
+              >
+                <XCircle className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
         </div>
         <CardDescription className="text-xs">
           {arrangement.statusMessage}

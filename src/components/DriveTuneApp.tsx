@@ -68,6 +68,7 @@ export default function DriveTuneApp() {
     arrangements,
     isProcessingGlobal,
     addNewArrangement,
+    removeArrangement,
     handleFileChangeForArrangement,
     processArrangement, // Destructured from arrangementManager
     handleProcessAllReadyArrangements, // Destructured from arrangementManager
@@ -497,6 +498,7 @@ export default function DriveTuneApp() {
                 isProcessingGlobal={isProcessingGlobal}
                 updateArrangementName={updateArrangementName} // Pass the function here
                 rootFolderName={rootFolderDisplayId || "DriveTune Files"} // Pass root folder name
+                removeArrangement={removeArrangement} // Pass the remove function here
               />
             ))}
           </div>
