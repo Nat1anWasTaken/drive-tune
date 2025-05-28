@@ -84,7 +84,9 @@ export default function DriveTuneApp() {
   const [isLoadingArrangementTypes, setIsLoadingArrangementTypes] =
     useState(false);
   const [additionalInstructions, setAdditionalInstructions] = useState<string>(
-    localStorage.getItem("driveTuneAdditionalInstructions") || ""
+    typeof window === "undefined"
+      ? ""
+      : localStorage.getItem("driveTuneAdditionalInstructions") || ""
   );
 
   // useEffects for loading APIs are typically within their respective hooks
