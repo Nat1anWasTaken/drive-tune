@@ -1,6 +1,7 @@
 "use client";
 
 // Import types from the central types file
+import { generateRandomId } from "@/lib/utils";
 import { PDFDocument } from "pdf-lib";
 import { useCallback, useState } from "react";
 import {
@@ -24,8 +25,6 @@ function arrayBufferToBase64(buffer: ArrayBufferLike): string {
   }
   return btoa(binary);
 }
-
-let arrangementIdCounter = 0;
 
 export interface ArrangementManager {
   arrangements: Arrangement[];
@@ -92,10 +91,10 @@ export function useArrangementManager(
   const { accessToken } = auth;
 
   const addNewArrangement = () => {
-    arrangementIdCounter++;
+    const randomId = generateRandomId();
     const newArrangement: Arrangement = {
-      id: `arr-${Date.now()}-${arrangementIdCounter}`,
-      name: `Arrangement ${arrangementIdCounter}`,
+      id: `arr-${Date.now()}-${randomId}`,
+      name: `Arrangement ${randomId}`,
       status: "pending_upload" as ArrangementStatus, // Use imported ArrangementStatus
       statusMessage: "Please upload PDF file(s) for this arrangement.",
       processedParts: [],
@@ -670,7 +669,6 @@ export function useArrangementManager(
 
   const clearArrangements = () => {
     setArrangements([]);
-    arrangementIdCounter = 0; // Reset counter if needed
   };
 
   return {
