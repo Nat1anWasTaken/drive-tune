@@ -55,8 +55,10 @@ export interface ArrangementManager {
     extractMusicSheetMetadata: (data: {
       musicSheetDataUri: string;
       existingArrangementTypes: string[]; // Changed from { id: string; name: string }[] to string[]
+      additionalInstructions?: string;
     }) => Promise<ExtractedMusicSheetMetadata>,
-    getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]> // Added
+    getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]>, // Added
+    additionalInstructions?: string // Optional additional instructions for AI
   ) => Promise<void>;
   handleProcessAllReadyArrangements: (
     rootFolderDriveId: string | null,
@@ -68,8 +70,10 @@ export interface ArrangementManager {
       // Ensure this is part of the signature
       musicSheetDataUri: string;
       existingArrangementTypes: string[]; // Changed from { id: string; name: string }[] to string[]
+      additionalInstructions?: string;
     }) => Promise<ExtractedMusicSheetMetadata>,
-    getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]> // Added
+    getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]>, // Added
+    additionalInstructions?: string // Optional additional instructions for AI
   ) => Promise<void>;
   clearArrangements: () => void;
   uploadFileToDriveAPI: (
@@ -326,8 +330,12 @@ export function useArrangementManager(
       extractMusicSheetMetadata: (data: {
         musicSheetDataUri: string;
         existingArrangementTypes: string[];
+        additionalInstructions?: string; // Optional additional instructions
       }) => Promise<ExtractedMusicSheetMetadata>,
-      getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]>
+      getExistingArrangementTypes: () => Promise<
+        { id: string; name: string }[]
+      >,
+      additionalInstructions?: string // Optional additional instructions for AI
     ) => {
       if (!arrangement.files || arrangement.files.length === 0) {
         updateArrangement(arrangement.id, {
@@ -376,6 +384,7 @@ export function useArrangementManager(
           metadata = await extractMusicSheetMetadata({
             musicSheetDataUri: dataUri,
             existingArrangementTypes: existingArrangementTypeNames, // Pass only names
+            additionalInstructions: additionalInstructions,
           });
           updateArrangement(arrangement.id, { extractedMetadata: metadata });
         } catch (metadataError) {
@@ -618,8 +627,12 @@ export function useArrangementManager(
         // Ensure signature matches
         musicSheetDataUri: string;
         existingArrangementTypes: string[];
+        additionalInstructions?: string; // Optional additional instructions
       }) => Promise<ExtractedMusicSheetMetadata>,
-      getExistingArrangementTypes: () => Promise<{ id: string; name: string }[]> // Pass this down
+      getExistingArrangementTypes: () => Promise<
+        { id: string; name: string }[]
+      >,
+      additionalInstructions?: string // Optional additional instructions for AI
     ) => {
       const readyArrangements = arrangements.filter(
         (arr) =>
@@ -641,7 +654,8 @@ export function useArrangementManager(
           rootFolderDriveId,
           findOrCreateFolderAPI,
           extractMusicSheetMetadata,
-          getExistingArrangementTypes // Make sure this is passed
+          getExistingArrangementTypes, // Make sure this is passed
+          additionalInstructions // Optional additional instructions for AI
         );
       }
       setIsProcessingGlobal(false);

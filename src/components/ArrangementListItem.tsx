@@ -177,7 +177,8 @@ export function ArrangementListItem({
     totalPartsCount
   );
   const canProcess =
-    arrangement.status === "ready_to_process" &&
+    (arrangement.status === "ready_to_process" ||
+      arrangement.status === "error") &&
     !!arrangement.files &&
     arrangement.files.length > 0 &&
     !isProcessingGlobal;
@@ -354,7 +355,7 @@ export function ArrangementListItem({
             </div>
           )}
       </CardContent>
-      {arrangement.status === "ready_to_process" && (
+      {canProcess && (
         <CardFooter className="p-4 pt-0">
           <Button
             onClick={() => onProcess(arrangement)}
@@ -362,7 +363,10 @@ export function ArrangementListItem({
             className="w-full bg-primary hover:bg-primary/90"
             size="sm"
           >
-            <Sparkles className="mr-2 h-4 w-4" /> Process This Arrangement
+            <Sparkles className="mr-2 h-4 w-4" />{" "}
+            {arrangement.status === "ready_to_process"
+              ? "Process This Arrangement"
+              : "Retry This Arrangement"}
           </Button>
         </CardFooter>
       )}

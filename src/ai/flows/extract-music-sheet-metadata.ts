@@ -38,6 +38,12 @@ const ExtractMusicSheetMetadataInputSchema = z.object({
     .describe(
       "An array of predefined arrangement type names that the AI must choose from. e.g., ['Concert Band', 'Jazz Ensemble', 'String Orchestra']"
     ),
+  additionalInstructions: z
+    .string()
+    .optional()
+    .describe(
+      "Any additional instructions or context for the AI to consider when extracting metadata."
+    ),
 });
 export type ExtractMusicSheetMetadataInput = z.infer<
   typeof ExtractMusicSheetMetadataInputSchema
@@ -197,6 +203,10 @@ function processInputUri(uri: string): {
 export async function extractMusicSheetMetadata(
   input: ExtractMusicSheetMetadataInput
 ): Promise<ExtractMusicSheetMetadataOutput> {
+  console.log(
+    "Starting music sheet metadata extraction... received input:",
+    input
+  );
   // Validate file size and choose approach
   const MAX_INLINE_SIZE = 20 * 1024 * 1024; // 20 MB in bytes
   const MAX_FILES_API_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB in bytes
@@ -395,6 +405,12 @@ const ExtractMusicSheetMetadataInputWithMimeSchema = z.object({
     .string()
     .optional()
     .describe("The MIME type of the file, required for Files API URIs"),
+  additionalInstructions: z
+    .string()
+    .optional()
+    .describe(
+      "Any additional instructions or context for the AI to consider when extracting metadata."
+    ),
 });
 
 const extractMusicSheetMetadataPrompt = ai.definePrompt({
@@ -404,7 +420,11 @@ const extractMusicSheetMetadataPrompt = ai.definePrompt({
   prompt: `${systemPrompt}
 
   Existing Arrangement Types: {{existingArrangementTypes}}
-  Music Sheet File: {{media url=musicSheetDataUri contentType=mimeType}}`,
+  Music Sheet File: {{media url=musicSheetDataUri contentType=mimeType}}
+  
+  {{#if additionalInstructions}}
+  Additional Instructions: {{additionalInstructions}}
+  {{/if}}`,
   config: {
     responseMimeType: "application/json", // Ensure Genkit requests JSON from Gemini
   },

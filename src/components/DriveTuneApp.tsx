@@ -18,6 +18,7 @@ import { Arrangement } from "@/types"; // Import Arrangement from central types
 // import { Progress } from "./ui/progress";
 import { useEffect, useState } from "react"; // Import useEffect and useState
 import { ArrangementListItem } from "./ArrangementListItem"; // Assuming you have this component
+import { Input } from "./ui/input";
 
 // Ensure this is set in your .env.local file
 // const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID; // Managed by useGoogleDriveAuth
@@ -82,6 +83,8 @@ export default function DriveTuneApp() {
   >([]);
   const [isLoadingArrangementTypes, setIsLoadingArrangementTypes] =
     useState(false);
+  const [additionalInstructions, setAdditionalInstructions] =
+    useState<string>("");
 
   // useEffects for loading APIs are typically within their respective hooks
   useEffect(() => {
@@ -139,6 +142,7 @@ export default function DriveTuneApp() {
     const extractMusicSheetMetadataWithFeedback = async (data: {
       musicSheetDataUri: string;
       existingArrangementTypes: string[];
+      additionalInstructions?: string; // Optional additional instructions
     }) => {
       try {
         // Check if it's a data URI and provide file size feedback
@@ -209,7 +213,8 @@ export default function DriveTuneApp() {
       rootFolderDriveId,
       findOrCreateFolderAPI,
       extractMusicSheetMetadataWithFeedback, // Use enhanced version with feedback
-      getExistingArrangementTypes // Pass the function as the 5th argument
+      getExistingArrangementTypes, // Pass the function as the 5th argument
+      additionalInstructions // Pass additional instructions
     );
   };
 
@@ -243,6 +248,7 @@ export default function DriveTuneApp() {
     const extractMusicSheetMetadataWithFeedback = async (data: {
       musicSheetDataUri: string;
       existingArrangementTypes: string[];
+      additionalInstructions?: string; // Optional additional instructions
     }) => {
       try {
         // Check if it's a data URI and provide file size feedback
@@ -312,7 +318,8 @@ export default function DriveTuneApp() {
       rootFolderDriveId,
       findOrCreateFolderAPI,
       extractMusicSheetMetadataWithFeedback, // Use enhanced version with feedback
-      getExistingArrangementTypes // Pass the function as the 4th argument
+      getExistingArrangementTypes, // Pass the function as the 4th argument
+      additionalInstructions // Pass additional instructions
     );
   };
 
@@ -505,24 +512,32 @@ export default function DriveTuneApp() {
 
           {/* Global Actions */}
           {arrangements.length > 0 && (
-            <div className="mt-8 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 sm:space-x-4">
-              <button
-                onClick={handleProcessAllReadyArrangementsWrapper}
-                disabled={isProcessingGlobal || numReadyToProcess === 0}
-                className="w-full sm:w-auto bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-6 rounded transition duration-150 ease-in-out disabled:opacity-50"
-              >
-                {isProcessingGlobal
-                  ? "Processing All..."
-                  : `Process All Ready (${numReadyToProcess})`}
-              </button>
-              <button
-                onClick={clearArrangements}
-                disabled={isProcessingGlobal}
-                className="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded transition duration-150 ease-in-out disabled:opacity-50"
-              >
-                Clear All Arrangements
-              </button>
-            </div>
+            <>
+              <div className="mt-8 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <button
+                  onClick={handleProcessAllReadyArrangementsWrapper}
+                  disabled={isProcessingGlobal || numReadyToProcess === 0}
+                  className="w-full sm:w-auto bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-6 rounded transition duration-150 ease-in-out disabled:opacity-50"
+                >
+                  {isProcessingGlobal
+                    ? "Processing All..."
+                    : `Process All Ready (${numReadyToProcess})`}
+                </button>
+                <button
+                  onClick={clearArrangements}
+                  disabled={isProcessingGlobal}
+                  className="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded transition duration-150 ease-in-out disabled:opacity-50"
+                >
+                  Clear All Arrangements
+                </button>
+              </div>
+              <Input
+                className="mt-4 w-full"
+                placeholder="Enter additional instructions..."
+                value={additionalInstructions}
+                onChange={(e) => setAdditionalInstructions(e.target.value)}
+              />
+            </>
           )}
           {isProcessingGlobal && (
             <div className="mt-4 w-full bg-blue-100 p-3 rounded-md text-center">
