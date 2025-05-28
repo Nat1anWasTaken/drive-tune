@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { FileUploadZone } from "@/components/ui/file-upload-zone";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -117,7 +118,6 @@ export function ArrangementListItem({
   rootFolderName,
   removeArrangement,
 }: ArrangementListItemProps) {
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editableName, setEditableName] = useState(arrangement.name);
   const [fileInfo, setFileInfo] = useState<{
@@ -128,6 +128,17 @@ export function ArrangementListItem({
       processingMethod: ReturnType<typeof getProcessingMethodDescription>;
     }>;
   } | null>(null);
+  // Handle file upload from FileUploadZone
+  const handleFileUpload = (files: FileList | File[]) => {
+    // Create a synthetic event to pass to onFileChange
+    const syntheticEvent = {
+      target: {
+        files: Array.isArray(files) ? files : Array.from(files),
+      },
+    } as unknown as React.ChangeEvent<HTMLInputElement>;
+
+    onFileChange(arrangement.id, syntheticEvent);
+  };
 
   useEffect(() => {
     setEditableName(arrangement.name);
@@ -233,28 +244,14 @@ export function ArrangementListItem({
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0">
-        <Progress value={progressValue} className="h-2 mb-3" />
-
+        <Progress value={progressValue} className="h-2 mb-3" />{" "}
         {arrangement.status === "pending_upload" && (
-          <>
-            <Input
-              type="file"
-              ref={fileInputRef}
-              onChange={(e) => onFileChange(arrangement.id, e)}
-              className="hidden"
-              accept=".pdf"
-              multiple
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full"
-            >
-              <FileUp className="mr-2 h-4 w-4" /> Upload PDF(s) for this
-              Arrangement
-            </Button>
-          </>
+          <FileUploadZone
+            onFileChange={handleFileUpload}
+            accept=".pdf"
+            multiple
+            fileFilter={(file) => file.type === "application/pdf"}
+          />
         )}
         {arrangement.files &&
           arrangement.files.length > 0 &&
@@ -330,11 +327,9 @@ export function ArrangementListItem({
                 )}
             </div>
           )}
-
         {arrangement.error && (
           <p className="text-destructive text-sm mt-2">{arrangement.error}</p>
         )}
-
         {arrangement.processedParts &&
           arrangement.processedParts.length > 0 && (
             <div className="mt-3">
