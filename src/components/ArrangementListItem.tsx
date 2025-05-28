@@ -220,6 +220,7 @@ export function ArrangementListItem({
                 className="text-destructive hover:bg-destructive/10"
                 onClick={() => removeArrangement(arrangement.id)}
                 title="Remove Arrangement"
+                disabled={isProcessingGlobal}
               >
                 <XCircle className="h-5 w-5" />
               </Button>
