@@ -5,6 +5,10 @@ on:
     branches: ["master"]
   workflow_dispatch:
 
+env:
+  REPO_NAME: ${{ github.event.repository.name }}
+  REPO_OWNER_LOWER: ${{ github.repository_owner }}
+
 jobs:
   build_and_push:
     runs-on: ubuntu-latest
@@ -25,6 +29,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Convert owner to lowercase
+        id: lc
+        run: |
+          echo "owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -32,17 +41,17 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+            ghcr.io/${{ steps.lc.outputs.owner_lower }}/${{ env.REPO_NAME }}:${{ github.sha }}
+            ghcr.io/${{ steps.lc.outputs.owner_lower }}/${{ env.REPO_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          image-ref: ghcr.io/${{ steps.lc.outputs.owner_lower }}/${{ env.REPO_NAME }}:latest
           format: "table"
-          exit-code: "0" # 設為 '1' 如果你想在發現漏洞時讓工作流程失敗
+          exit-code: "0"
           ignore-unfixed: true
           vuln-type: "os,library"
-          severity: "CRITICAL,HIGH" # 指定要報告的嚴重性級別
+          severity: "CRITICAL,HIGH"
