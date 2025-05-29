@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# macOS
+.DS_Store
+
+# Build artifacts / Caches
+.next
+*.tsbuildinfo
+
+# Documentation
+README.md
+
+# CI/CD
+.github
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Editor
+.vscode
+.idea
