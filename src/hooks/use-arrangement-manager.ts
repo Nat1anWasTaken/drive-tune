@@ -244,7 +244,8 @@ export function useArrangementManager(
   async function splitPdfPart(
     originalPdfDoc: PDFDocument,
     startPage: number, // Corresponds to PartInformation.start_page
-    endPage: number // Corresponds to PartInformation.end_page
+    endPage: number, // Corresponds to PartInformation.end_page
+    composers?: string[] // The composers array to write as the author field in the new PDF
   ): Promise<Uint8Array> {
     const newPdfDoc = await PDFDocument.create();
     const pageIndices = [];
@@ -261,6 +262,11 @@ export function useArrangementManager(
     }
     const copiedPages = await newPdfDoc.copyPages(originalPdfDoc, pageIndices);
     copiedPages.forEach((page) => newPdfDoc.addPage(page));
+
+    if (composers && composers.length > 0) {
+      newPdfDoc.setAuthor(composers.join(", "));
+    }
+
     return newPdfDoc.save();
   }
 
@@ -507,7 +513,8 @@ export function useArrangementManager(
               const partPdfBytes = await splitPdfPart(
                 pdfDocToSplit,
                 part.start_page,
-                part.end_page
+                part.end_page,
+                metadata.composers
               );
 
               const generatedPartFilename = `[${part.label}] ${
