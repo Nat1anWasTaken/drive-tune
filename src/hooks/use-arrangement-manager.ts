@@ -517,9 +517,9 @@ export function useArrangementManager(
                 metadata.composers
               );
 
-              const generatedPartFilename = `[${part.label}] ${
+              const generatedPartFilename = `${
                 metadata.title || arrangement.name
-              }.pdf`;
+              } - ${part.label}.pdf`;
               updatePartStatus(
                 arrangement.id,
                 part.id,
