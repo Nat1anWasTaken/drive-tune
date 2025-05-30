@@ -245,7 +245,7 @@ export function useArrangementManager(
     originalPdfDoc: PDFDocument,
     startPage: number, // Corresponds to PartInformation.start_page
     endPage: number, // Corresponds to PartInformation.end_page
-    composers?: string[] // The composers array to write as the author field in the new PDF
+    metadata: ExtractedMusicSheetMetadata // The composers array to write as the author field in the new PDF
   ): Promise<Uint8Array> {
     const newPdfDoc = await PDFDocument.create();
     const pageIndices = [];
@@ -263,8 +263,12 @@ export function useArrangementManager(
     const copiedPages = await newPdfDoc.copyPages(originalPdfDoc, pageIndices);
     copiedPages.forEach((page) => newPdfDoc.addPage(page));
 
-    if (composers && composers.length > 0) {
-      newPdfDoc.setAuthor(composers.join(", "));
+    if (metadata.composers && metadata.composers.length > 0) {
+      newPdfDoc.setAuthor(metadata.composers.join(", "));
+    }
+
+    if (metadata.arrangement_type) {
+      newPdfDoc.setKeywords([metadata.arrangement_type]);
     }
 
     return newPdfDoc.save();
@@ -514,7 +518,7 @@ export function useArrangementManager(
                 pdfDocToSplit,
                 part.start_page,
                 part.end_page,
-                metadata.composers
+                metadata
               );
 
               const generatedPartFilename = `${
