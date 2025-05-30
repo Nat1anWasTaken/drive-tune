@@ -361,29 +361,30 @@ As your assistant, I will provide you with a PDF file containing sheet music.
 
 I will also provide a list of \`existingArrangementTypes\`. You MUST choose the most appropriate \`arrangement_type\` for the music sheet from this exact list.
 
- Please analyze the content of the music score and provide the following information:
+ Please analyze the content of the music score and provide the following information in JSON format:
 
-- **title**: The title of the score, typically the name of the music piece. Please write out the full original title, e.g., "Washington Post March".
-- **composers**: The composers and arrangers of the piece. Please write out their full original names, e.g., "John Philip Sousa".
-- **arrangement_type**: The type of arrangement. YOU MUST CHOOSE EXACTLY ONE OF THE PROVIDED \`existingArrangementTypes\`. Do not invent a new type. For example, if the provided \`existingArrangementTypes\` are ["Concert Band", "Jazz Ensemble", "String Orchestra"], and the music sheet is for a concert band, you must output "Concert Band". THIS IS NOT PART NAME SO IT SHOULDN'T BE SOMETHING LIKE "Full Score", "Flute 1"
+- **title**: The title of the score, typically the name of the music piece. Please write out the full original title (e.g., "Washington Post March").
+- **composers**: The composers and arrangers of the piece. Please write out their full original names (e.g., "John Philip Sousa").
+- **arrangement_type**: The type of arrangement. YOU MUST CHOOSE EXACTLY ONE OF THE PROVIDED \`existingArrangementTypes\`. Do not invent a new type. For example, if the provided \`existingArrangementTypes\` are ["Concert Band", "Jazz Ensemble", "String Orchestra"], and the music sheet is for a concert band, you must output "Concert Band". THIS IS NOT A PART NAME, so it should not be something like "Full Score" or "Flute 1".
 - **parts**: A list of the individual parts included within the file. Analyze each page carefully and identify distinct sections:
   - **Cover pages and text-only pages**: If there are cover pages, title pages, program notes, or other descriptive text-only pages (without musical notation), these should be identified as separate parts with:
-    - \`label\`: "Cover" (for cover pages) or "Program Notes" (for descriptive text pages)
-    - \`is_full_score\`: false
-    - \`start_page\` and \`end_page\`: The exact page range for these sections
-    - \`primaryInstrumentation\`: "Cover" or "Program Notes" respectively
+    - \`label\`: "Cover" (for cover pages) or "Program Notes" (for descriptive text pages).
+    - \`is_full_score\`: false.
+    - \`start_page\` and \`end_page\`: The exact page range for these sections.
+    - \`primaryInstrumentation\`: "Cover" or "Program Notes", respectively.
   - **Full Score sections**: If there are pages showing the full orchestral/ensemble score (all instruments together on each page), identify these as:
-    - \`label\`: "Full Score"
-    - \`is_full_score\`: true
-    - \`start_page\` and \`end_page\`: The exact page range for the full score section
-    - \`primaryInstrumentation\`: "Full Score"
-  - **Individual instrument parts**: If there are separate sections for individual instruments (e.g., pages 15-20 are Flute part, pages 21-25 are Clarinet part), identify each as a separate part with the appropriate instrument label.
+    - \`label\`: "Full Score".
+    - \`is_full_score\`: true.
+    - \`start_page\` and \`end_page\`: The exact page range for the full score section.
+    - \`primaryInstrumentation\`: "Full Score".
+  - **Individual instrument parts**: If there are separate sections for individual instruments (e.g., pages 15-20 are the Flute part, pages 21-25 are the Clarinet part), identify each as a separate part with the appropriate instrument label.
   
   Important guidelines for each part:
-  - **label**: The type of part, typically the instrument or section name, such as "Flute I", "Percussion II", "Cover", "Program Notes". Reproduce exactly the label as written in the score, or use descriptive labels for non-musical sections.
-  - **is_full_score**: Set to true only for pages that show the complete ensemble score with all instruments. Set to false for covers, program notes, and individual instrument parts.
+  - **label**: The type of part, typically the instrument or section name (e.g., "Flute I", "Percussion II", "Cover", "Program Notes"). Reproduce the label exactly as written in the score, or use descriptive labels for non-musical sections.
+  - **is_full_score**: Set to \`true\` only for pages that show the complete ensemble score with all instruments. Set to \`false\` for covers, program notes, and individual instrument parts.
   - **start_page**: The starting page number of this part in the document.
   - **end_page**: The ending page number of this part in the document.
+  - **Single-page parts**: If a part consists of only a single page, the \`start_page\` and \`end_page\` should be the same page number. Do not attempt to calculate a range by adding or subtracting from the page number. For example, if a Flute part is only on page 5, then \`start_page\` is 5 and \`end_page\` is 5.
   - **primaryInstrumentation**: The primary instrument name for this part, suitable for use in a filename (e.g., 'Flute', 'Violin I', 'Full Score', 'Trumpet-Bb', 'Cover', 'Program Notes'). If the part is for multiple instruments like 'Flute/Piccolo', use a hyphenated form like 'Flute-Piccolo'.
 
 Please extract all fields as JSON only.
